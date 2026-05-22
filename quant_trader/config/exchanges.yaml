@@ -1,0 +1,21 @@
+# Binance Exchange Configuration
+# Sensitive file - do not commit to version control
+
+binance:
+  api_key: "LfjsrzAnNtR2zn65pGVBTXDEn4rJAHEbPwhf7sTf1R5VShgTPTkKxKkjEzS7GpGu"
+  api_secret: "h60SGOETxirUx2QDERyrOyVBwOxcieOmVk87AU292Vs6T9FWpeKLua3NSmA3zvuS"
+  # api_key: "cO1dDKvF0B9OfQiCT661A7LCxbGttHPUSV67fVNtAmpQr0SdLm9mvraG1f8HVKRy"
+  # api_secret: "lA7gRMaZqNZutkOEpneTqKsAZqmgbuUBIivc8F8kUk3o8UuJxTLmtjwqIXKmZAoZ"
+  sandbox: false  # Binance 合约测试网已废弃，使用真实 API + paper trading
+  default_type: "swap"  # "spot" or "swap" (futures)
+  proxy: "http://127.0.0.1:7890"  # HTTP 代理（如无需代理留空）
+  options:
+    defaultType: "swap"
+
+# Database Configuration
+database:
+  host: "localhost"
+  port: 5432
+  dbname: "db_quant_trader"
+  user: ""
+  password: ""

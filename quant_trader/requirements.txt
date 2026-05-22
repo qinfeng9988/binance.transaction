@@ -1,0 +1,26 @@
+# Core
+ccxt>=4.0.0
+pandas>=2.1.0
+numpy>=1.26.0
+
+# Technical Analysis
+# TA-Lib requires C library: brew install ta-lib (macOS) / apt-get install libta-lib-dev (Linux)
+TA-Lib>=0.4.28
+# Fallback if TA-Lib C lib not available:
+# pandas-ta>=0.3.14b0
+
+# Backtesting
+backtesting>=0.3.3
+
+# Configuration
+pyyaml>=6.0
+watchdog>=3.0.0
+
+# Database
+psycopg2-binary>=2.9.9
+
+# Async
+# asyncio is stdlib, no extra dep needed
+
+# Logging
+# logging is stdlib, no extra dep needed

@@ -1,0 +1,27 @@
+# Strategy Configuration
+# Supports hot-reload (changes detected and applied without restart)
+
+# Global trading mode: paper | live_confirm | live_auto
+mode: "paper"
+
+strategies:
+  - name: "support_resistance"
+    enabled: true
+    symbols:
+      - "BTC/USDT"
+      - "ETH/USDT"
+    timeframes:
+      - "5m"
+      - "1h"
+      - "4h"
+    params:
+      # Lookback period for support/resistance detection (number of candles)
+      lookback: 100
+      # Minimum touch count to consider a level valid
+      min_touches: 2
+      # Stop loss percentage (based on position value, not margin)
+      stop_loss_pct: 1.5
+      # Leverage (will be capped by risk.yaml limits)
+      leverage: 5
+      # Entry: enter when price is near support within this percentage
+      entry_threshold_pct: 0.5

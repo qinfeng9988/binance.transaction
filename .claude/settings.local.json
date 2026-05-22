@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(openspec-cn init *)",
+      "Bash(openspec-cn new *)",
+      "Bash(openspec-cn status *)",
+      "Bash(openspec-cn instructions *)",
+      "Bash(psql -l)",
+      "Bash(psql *)",
+      "Bash(pip install *)",
+      "Bash(pip3 install *)",
+      "Bash(scutil --proxy)",
+      "Bash(python3 *)",
+      "Bash(gtimeout 20 python3 main.py)",
+      "Bash(pip3 list *)",
+      "Bash(/opt/homebrew/lib/python*/site-packages)",
+      "Bash(.venv/bin/python -c \"import yaml; import psycopg2; import ccxt; print\\('all imports ok'\\)\")",
+      "Bash(../.venv/bin/python main.py)",
+      "Bash(../.venv/bin/python *)"
+    ]
+  }
+}
