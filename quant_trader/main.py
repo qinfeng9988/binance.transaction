@@ -2,16 +2,18 @@
 
 import asyncio
 import logging
+import random
+import time as _time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from core.config_loader import ConfigLoader
-from core.data_store import DataStore, OrderRecord, SignalRecord
-from core.logger import setup_logging
-from exchange.binance_adapter import BinanceAdapter
-from exchange.paper_trading import PaperTradingEngine
-from models import Signal
-from risk.manager import RiskManager
+from .core.config_loader import ConfigLoader
+from .core.data_store import DataStore, OrderRecord, SignalRecord
+from .core.logger import setup_logging
+from .exchange.binance_adapter import BinanceAdapter
+from .exchange.paper_trading import PaperTradingEngine
+from .models import Signal
+from .risk.manager import RiskManager
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +41,8 @@ class Engine:
         self._running = False
         self._paused = False
         self._strategy_cache: dict | None = None
+        self._last_signal_time: dict[str, float] = {}  # symbol → 最后处理信号的时间戳（epoch秒）
+        self._signal_cooldown = 300                      # 同币种最短信号间隔（秒）
 
     def initialize(self):
         """初始化：加载配置、连接数据库和交易所。"""
@@ -118,12 +122,19 @@ class Engine:
                         seen.add(key)
                         tasks.append(self._run_cycle(strategy.name, symbol, tf))
 
+        # 错开各周期的启动时间（随机延迟），避免多周期在同一时刻对同一币种发单冲突
+        for i, task in enumerate(tasks):
+            if i > 0:
+                await asyncio.sleep(random.uniform(2, 8))
+
         # 并发运行所有周期任务
         await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _run_cycle(self, strategy_name: str, symbol: str, timeframe: str):
         """单个策略+币种+周期的循环执行。"""
         interval = TIMEFRAME_SECONDS.get(timeframe, 300)
+        # 首次执行随机延迟，错开多个周期同时拉取
+        await asyncio.sleep(random.uniform(1, 5))
         logger.info("周期已启动: %s %s %s (间隔=%d秒)", strategy_name, symbol, timeframe, interval)
 
         while self._running:
@@ -136,7 +147,7 @@ class Engine:
                 self._paused = False
 
                 # 拉取最新 K 线
-                klines = await self.exchange.fetch_ohlcv(symbol, timeframe, limit=200)
+                klines = await self.exchange.fetch_ohlcv(symbol, timeframe, limit=50)
                 if not klines:
                     logger.warning("无 K 线数据: %s %s", symbol, timeframe)
                     await asyncio.sleep(interval)
@@ -149,15 +160,21 @@ class Engine:
                 self._store_klines(klines, symbol, timeframe)
 
                 # 更新模拟持仓价格（触发止损检查）
-                current_price = klines[-1]["close"]
+                current_price = klines[0]["close"]  # 反转后 klines[0] 是最新K线
                 self.paper_engine.update_prices(symbol, current_price, self.data_store)
 
-                # 执行策略
+                # 执行策略 — 同一币种的信号去重（冷却时间内跳过重复信号）
                 strategy = self._get_strategy(strategy_name)
                 if strategy:
                     signals = strategy.on_bar(symbol, timeframe, klines, self.paper_engine.positions.values())
+                    now = _time.time()
                     for signal in signals:
+                        last = self._last_signal_time.get(signal.symbol, 0)
+                        if now - last < self._signal_cooldown:
+                            logger.debug("跳过冷却期内的信号: %s %s", signal.symbol, signal.signal_type)
+                            continue
                         await self._handle_signal(signal)
+                        self._last_signal_time[signal.symbol] = now
 
                 # 定期打印账户概览（每 10 个周期）
                 if hasattr(self, "_cycle_count"):
@@ -237,7 +254,7 @@ class Engine:
 
     def _execute_paper_trade(self, signal: Signal):
         """模拟交易执行。"""
-        from core.data_store import PositionRecord
+        from .core.data_store import PositionRecord
         from datetime import datetime, timezone
 
         # 计算下单数量（默认用总资金的 10%）
@@ -269,7 +286,6 @@ class Engine:
                     timestamp=signal.timestamp,
                     mode="paper",
                     order_id=order.order_id,
-                    status=order.status,
                 ))
         else:
             # 开仓或加仓
@@ -294,7 +310,6 @@ class Engine:
                     timestamp=signal.timestamp,
                     mode="paper",
                     order_id=order.order_id,
-                    status=order.status,
                 ))
 
                 # 如果是新建持仓（非加仓），写入持仓记录到数据库
@@ -333,7 +348,7 @@ class Engine:
 
     def _store_klines(self, klines: list[dict], symbol: str, timeframe: str):
         """将 K 线数据写入数据库。"""
-        from core.data_store import KlineRecord
+        from .core.data_store import KlineRecord
         records = [
             KlineRecord(
                 symbol=symbol,
@@ -351,7 +366,7 @@ class Engine:
 
     def _load_strategies(self) -> dict:
         """根据配置实例化策略对象。"""
-        from strategies.s_r_levels import SupportResistanceStrategy
+        from .strategies.s_r_levels import SupportResistanceStrategy
 
         # 策略注册表：名称 -> 策略类
         strategy_registry = {

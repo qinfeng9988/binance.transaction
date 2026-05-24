@@ -10,6 +10,8 @@ strategies:
     symbols:
       - "BTC/USDT"
       - "ETH/USDT"
+      - "SOL/USDT"
+      - "PAXG/USDT"
     timeframes:
       - "5m"
       - "1h"

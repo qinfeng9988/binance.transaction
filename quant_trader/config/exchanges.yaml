@@ -8,7 +8,7 @@ binance:
   # api_secret: "lA7gRMaZqNZutkOEpneTqKsAZqmgbuUBIivc8F8kUk3o8UuJxTLmtjwqIXKmZAoZ"
   sandbox: false  # Binance 合约测试网已废弃，使用真实 API + paper trading
   default_type: "swap"  # "spot" or "swap" (futures)
-  proxy: "http://127.0.0.1:7890"  # HTTP 代理（如无需代理留空）
+  proxy: "http://127.0.0.1:7897"  # HTTP 代理（Clash Verge）
   options:
     defaultType: "swap"
 
@@ -17,5 +17,5 @@ database:
   host: "localhost"
   port: 5432
   dbname: "db_quant_trader"
-  user: ""
-  password: ""
+  user: "postgres"
+  password: "123456"

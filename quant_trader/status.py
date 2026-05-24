@@ -1,8 +1,8 @@
 """快速查看账户状态：余额、持仓、历史交易。"""
 
-from core.config_loader import ConfigLoader
-from core.data_store import DataStore
-from exchange.paper_trading import PaperTradingEngine
+from quant_trader.core.config_loader import ConfigLoader
+from quant_trader.core.data_store import DataStore
+from quant_trader.exchange.paper_trading import PaperTradingEngine
 
 
 def main():

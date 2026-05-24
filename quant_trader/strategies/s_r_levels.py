@@ -10,10 +10,10 @@
 
 import logging
 
-from models import Signal
-from strategies.base import BaseStrategy
-from technical.indicators import ema
-from technical.support_resistance import identify_support_resistance
+from ..models import Signal
+from .base import BaseStrategy
+from ..technical.indicators import ema
+from ..technical.support_resistance import identify_support_resistance
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ class SupportResistanceStrategy(BaseStrategy):
 
         # 识别支撑/压力位
         levels = identify_support_resistance(klines, min_touches=min_touches, lookback=lookback)
-        current_price = klines[-1]["close"]
+        current_price = klines[0]["close"]  # 反转后 klines[0] 是最新K线
 
         signals = []
 

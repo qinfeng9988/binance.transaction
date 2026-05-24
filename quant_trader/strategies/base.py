@@ -5,7 +5,7 @@
 
 from abc import ABC, abstractmethod
 
-from models import Signal
+from ..models import Signal
 
 
 class BaseStrategy(ABC):

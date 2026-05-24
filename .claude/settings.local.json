@@ -16,7 +16,29 @@
       "Bash(/opt/homebrew/lib/python*/site-packages)",
       "Bash(.venv/bin/python -c \"import yaml; import psycopg2; import ccxt; print\\('all imports ok'\\)\")",
       "Bash(../.venv/bin/python main.py)",
-      "Bash(../.venv/bin/python *)"
+      "Bash(../.venv/bin/python *)",
+      "Bash(pip list *)",
+      "Bash(python -c \"import quant_trader.main\")",
+      "Bash(python -c \"from quant_trader.main import Engine; print\\('Import OK'\\)\")",
+      "Bash(python -c \"from quant_trader.reset import main; print\\('reset OK'\\)\")",
+      "Bash(python -c \"from quant_trader.status import main; print\\('status OK'\\)\")",
+      "Bash(python -m quant_trader.main)",
+      "Bash(pg_isready)",
+      "Bash(netstat -ano)",
+      "Bash(docker exec *)",
+      "Bash(curl -v --proxy http://127.0.0.1:7890 -o /dev/null -s -w \"HTTP %{http_code}\" https://api.binance.com/api/v3/ping)",
+      "Bash(tasklist)",
+      "Bash(curl -v --connect-timeout 5 -o /dev/null -s -w \"HTTP %{http_code}\" https://api.binance.com/api/v3/ping)",
+      "Bash(curl -v --proxy http://127.0.0.1:7897 --connect-timeout 5 -o /dev/null -s -w \"HTTP %{http_code}\" https://www.binance.com)",
+      "Bash(curl -k --proxy http://127.0.0.1:7897 --connect-timeout 5 -o /dev/null -s -w \"HTTP %{http_code}\" https://api.binance.com/api/v3/ping)",
+      "Bash(curl -x socks5h://127.0.0.1:7890 --connect-timeout 5 -o /dev/null -s -w \"HTTP %{http_code}\" https://api.binance.com/api/v3/ping)",
+      "Bash(python -m quant_trader.status)",
+      "Bash(python -m quant_trader.reset --list)",
+      "Bash(python -m quant_trader.reset --archive-only --force)",
+      "Bash(python -c \"import quant_trader.main; print\\('OK'\\)\")",
+      "Bash(python *)",
+      "Bash(taskkill /F /PID 13340)",
+      "Bash(cmd //c \"taskkill /F /PID 13340\")"
     ]
   }
 }

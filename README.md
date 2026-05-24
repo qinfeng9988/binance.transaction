@@ -29,17 +29,36 @@ quant_trader/
 └── logs/                          # 运行日志
 ```
 
+---
+
 ## 安装
 
+### Windows (CMD)
+
+```batch
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+### Windows (PowerShell)
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+### macOS / Linux
+
 ```bash
-# 创建虚拟环境并安装依赖
-python3 -m venv .venv
+python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# TA-Lib C 库 (macOS, 可选)
-brew install ta-lib
-# 如果 TA-Lib 安装失败，系统会自动使用 numpy 备选方案
+# TA-Lib C 库（可选）
+brew install ta-lib   # macOS
+# apt install libta-lib-dev    # Ubuntu/Debian
 ```
 
 ---
@@ -48,19 +67,29 @@ brew install ta-lib
 
 ### 启动程序
 
+所有平台命令相同：
+
 ```bash
-cd /Users/qinj057/develop/binance.transaction-ui/quant_trader
-.venv/bin/python main.py
+python -m quant_trader.main
 ```
 
-### 停止程序
+> 在项目根目录（即包含 `quant_trader/` 子目录的目录）下执行。
 
 - 正常停止：`Ctrl + C`
 - 紧急暂停：在项目根目录下创建 `.pause` 文件，程序会自动暂停当前周期
 
 ```bash
-touch .pause      # 暂停
-rm .pause         # 恢复运行
+# Windows CMD
+copy nul .pause
+del .pause
+
+# Windows PowerShell
+ni .pause -ItemType File
+Remove-Item .pause
+
+# macOS / Linux
+touch .pause
+rm .pause
 ```
 
 ---
@@ -75,14 +104,14 @@ binance:
   api_secret: "你的API Secret"
   sandbox: false          # 是否使用测试网（Binance合约测试网已废弃）
   default_type: "swap"    # "spot"=现货, "swap"=合约
-  proxy: "http://127.0.0.1:7890"  # HTTP 代理（不需要代理留空）
+  proxy: "http://127.0.0.1:7897"  # HTTP 代理（不需要代理留空）
 
 database:
   host: "localhost"
   port: 5432
   dbname: "db_quant_trader"
-  user: ""
-  password: ""
+  user: "postgres"
+  password: "你的密码"
 ```
 
 **生效方式**：重启生效（修改后需重启程序）
@@ -154,8 +183,10 @@ position_limits:
 
 ### 查看账户状态
 
+所有平台命令相同：
+
 ```bash
-.venv/bin/python status.py
+python -m quant_trader.status
 ```
 
 显示内容：
@@ -167,24 +198,26 @@ position_limits:
 
 当你更换策略或想重新开始时，将当前交易数据归档并清空。
 
+所有平台命令相同：
+
 ```bash
 # 归档 + 清空交易数据（交互式确认）
-.venv/bin/python reset.py
+python -m quant_trader.reset
 
 # 跳过确认直接执行
-.venv/bin/python reset.py --force
+python -m quant_trader.reset --force
 
 # 仅归档，不清空（留个备份）
-.venv/bin/python reset.py --archive-only
+python -m quant_trader.reset --archive-only
 
 # 指定归档表名称（方便识别）
-.venv/bin/python reset.py --archive-only --suffix "before_add_rsi_strategy"
+python -m quant_trader.reset --archive-only --suffix "before_add_rsi_strategy"
 
 # 列出已有归档
-.venv/bin/python reset.py --list
+python -m quant_trader.reset --list
 
 # 删除某个归档
-.venv/bin/python reset.py --drop orders_20260521_174124
+python -m quant_trader.reset --drop orders_20260522_201919
 ```
 
 **保留的数据**：K 线历史（klines 表）不会被删除，策略重新跑时直接复用。
@@ -192,15 +225,43 @@ position_limits:
 
 ### 查看日志
 
+#### Windows (PowerShell)
+
+```powershell
+# 主程序日志（实时追踪）
+Get-Content quant_trader\logs\trader.log -Tail 50 -Wait
+
+# 信号日志
+Get-Content quant_trader\logs\signals.log -Tail 50 -Wait
+
+# 成交日志
+Get-Content quant_trader\logs\trades.log -Tail 50 -Wait
+```
+
+#### Windows (CMD)
+
+```batch
+REM 主程序日志（不跟踪）
+type quant_trader\logs\trader.log
+
+REM 信号日志
+type quant_trader\logs\signals.log
+
+REM 成交日志
+type quant_trader\logs\trades.log
+```
+
+#### macOS / Linux
+
 ```bash
-# 查看运行日志（实时追踪）
-tail -f logs/trader.log
+# 主程序日志（实时追踪）
+tail -f quant_trader/logs/trader.log
 
-# 查看信号日志
-tail -f logs/signals.log
+# 信号日志
+tail -f quant_trader/logs/signals.log
 
-# 查看交易日志
-tail -f logs/trades.log
+# 成交日志
+tail -f quant_trader/logs/trades.log
 ```
 
 ### 程序重启后恢复
@@ -240,7 +301,7 @@ ORDER BY exit_time DESC;
 
 ```sql
 SELECT id, symbol, side, price, quantity, leverage,
-       mode, status, order_id, timestamp
+       mode, order_id, timestamp
 FROM orders
 ORDER BY timestamp DESC
 LIMIT 50;
@@ -260,9 +321,9 @@ LIMIT 50;
 
 ```sql
 -- 查看某个归档表的全部记录
-SELECT * FROM orders_20260521_174124;
-SELECT * FROM positions_20260521_174124;
-SELECT * FROM signals_20260521_174124;
+SELECT * FROM orders_20260522_201919;
+SELECT * FROM positions_20260522_201919;
+SELECT * FROM signals_20260522_201919;
 ```
 
 ---
@@ -387,7 +448,7 @@ levels = identify_support_resistance(klines, min_touches=2, lookback=100)
 
 ```yaml
 binance:
-  proxy: "http://127.0.0.1:7890"
+  proxy: "http://127.0.0.1:7897"  # Clash Verge 默认端口
 ```
 
 如果不需要代理，将 `proxy` 置为空字符串：
@@ -398,6 +459,8 @@ binance:
 ```
 
 修改后需要 **重启程序** 生效（代理属于静态配置）。
+
+> **注意**：Python ccxt 不使用系统代理，必须显式配置。确保 Clash Verge 设置为「全局」或「混合」模式。
 
 ---
 
@@ -442,19 +505,22 @@ binance:
 不会丢失。程序启动时自动从数据库恢复未平仓记录。
 
 ### Q: 如何更换策略重新跑？
-使用 `reset.py` 归档旧数据后重新开始（见"数据归档与重置"部分）。
+使用 `python -m quant_trader.reset` 归档旧数据后重新开始。
 
 ### Q: K 线数据如何获取？
 程序启动后自动从 Binance 拉取，并存入数据库。每次运行只拉取增量数据（基于最新时间戳）。
 
 ### Q: 如何知道程序是否在运行？
-查看进程：
+
 ```bash
+# Windows CMD
+tasklist | findstr python
+
+# Windows PowerShell
+Get-Process python
+
+# macOS / Linux
 ps aux | grep main.py
-```
-或者查看日志文件是否持续更新：
-```bash
-ls -la logs/trader.log
 ```
 
 ### Q: 日志文件在哪里？

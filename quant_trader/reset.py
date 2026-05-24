@@ -1,28 +1,30 @@
-"""交易数据归档与重置工具。
-
-用途：当更换策略或重新开始时，将当前交易记录归档到带时间戳的备份表，
-然后清空 orders/signals/positions 表，保留 klines 历史数据。
+"""交易数据归档、重置与日志清理工具。
 
 使用方式:
-    # 归档并清空（会要求确认）
-    .venv/bin/python reset.py
+    # 归档 + 清空交易数据（交互式确认）
+    python -m quant_trader.reset
 
     # 仅归档不清空
-    .venv/bin/python reset.py --archive-only
+    python -m quant_trader.reset --archive-only
 
     # 列出已有的归档表
-    .venv/bin/python reset.py --list
+    python -m quant_trader.reset --list
 
     # 删除指定归档表
-    .venv/bin/python reset.py --drop orders_20260521
+    python -m quant_trader.reset --drop orders_20260521
+
+    # 清理日志文件（主日志超过一定大小后保留最近 N 行）
+    python -m quant_trader.reset --clear-logs     # 清理所有日志
+    python -m quant_trader.reset --clear-logs 5000  # 主日志只保留最后 5000 行
 """
 
 import argparse
+import os
 import sys
 from datetime import datetime
 
-from core.config_loader import ConfigLoader
-from core.data_store import DataStore
+from quant_trader.core.config_loader import ConfigLoader
+from quant_trader.core.data_store import DataStore
 
 
 # 需要归档的交易表
@@ -143,6 +145,8 @@ def main():
                         help="归档表后缀（默认使用时间戳）")
     parser.add_argument("--force", "-f", action="store_true",
                         help="跳过确认")
+    parser.add_argument("--clear-logs", nargs="?", const=5000, type=int, default=0,
+                        help="清理日志文件，保留最近 N 行（默认 5000）")
     args = parser.parse_args()
 
     cfg = ConfigLoader()
@@ -164,6 +168,11 @@ def main():
 
         if args.drop:
             drop_archive(ds, args.drop)
+            return
+
+        if args.clear_logs > 0:
+            print(f"\n正在清理日志文件（保留最近 {args.clear_logs} 行）...")
+            clear_logs(args.clear_logs)
             return
 
         # 归档
@@ -192,20 +201,50 @@ def main():
         print("\n正在清理交易数据...")
         clear_tables(ds)
 
-        # 重置序列
-        conn = get_conn(ds)
-        with conn.cursor() as cur:
-            for seq in ["orders_id_seq", "signals_id_seq", "positions_id_seq"]:
-                cur.execute(f"ALTER SEQUENCE {seq} RESTART WITH 1")
-            print("  自增序列已重置")
+        print(f"  自增序列已重置")
 
         print("\n完成！模拟账户已重置，可以开始新的策略运行。")
-        print("运行 .venv/bin/python main.py 重新开始交易。")
+        print("运行 python -m quant_trader.main 重新开始交易。")
 
     finally:
         ds.close()
 
     print()
+
+
+# ==================== 日志清理 ====================
+
+def clear_logs(keep_lines: int):
+    """清理或压缩日志文件，保留指定行数。"""
+    import pathlib
+
+    log_dir = pathlib.Path(__file__).parent / "logs"
+    if not log_dir.exists():
+        print("  日志目录不存在")
+        return
+
+    total_before = sum(os.path.getsize(f) for f in log_dir.glob("*"))
+    kept = 0
+    cleared = 0
+
+    for logfile in sorted(log_dir.glob("*.log")):
+        lines = logfile.read_text(encoding="utf-8").splitlines()
+
+        if len(lines) <= keep_lines:
+            continue  # 不需要清理
+
+        truncated_lines = lines[-keep_lines:]
+        with open(logfile, "w", encoding="utf-8") as f:
+            f.write("\n".join(truncated_lines))
+
+        kept += len(truncated_lines)
+        cleared += len(lines) - len(truncated_lines)
+        saved_mb = (total_before - sum(os.path.getsize(f) for f in log_dir.glob("*"))) / 1024 / 1024
+        print(f"  [清理] {logfile.name}: {len(lines):,} 行 → {len(truncated_lines):,} 行（删除 {cleared:,} 行）")
+
+    total_after = sum(os.path.getsize(f) for f in log_dir.glob("*"))
+    saved_mb = (total_before - total_after) / 1024 / 1024
+    print(f"\n  日志清理完成: 保留 {kept:,} 行，删除 {cleared:,} 行，节省 {saved_mb:.1f} MB")
 
 
 if __name__ == "__main__":

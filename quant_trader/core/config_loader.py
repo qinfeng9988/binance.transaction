@@ -83,7 +83,7 @@ class ConfigLoader:
     def load_static(self) -> ExchangeConfig:
         """加载 exchanges.yaml（静态配置，修改后需重启）。"""
         path = self.config_dir / "exchanges.yaml"
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             raw = yaml.safe_load(f)
 
         binance = raw.get("binance", {})
@@ -106,7 +106,7 @@ class ConfigLoader:
     def load_strategies(self) -> StrategyGlobalConfig:
         """加载 strategies.yaml（动态配置，支持热重载）。"""
         path = self.config_dir / "strategies.yaml"
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             raw = yaml.safe_load(f)
 
         self._validate_strategies(raw)
@@ -131,7 +131,7 @@ class ConfigLoader:
     def load_risk(self) -> RiskConfig:
         """加载 risk.yaml（动态配置，支持热重载）。"""
         path = self.config_dir / "risk.yaml"
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             raw = yaml.safe_load(f)
 
         self._validate_risk(raw)

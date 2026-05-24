@@ -33,7 +33,7 @@ class KlineRecord:
 
 @dataclass
 class OrderRecord:
-    """订单记录。"""
+    """订单记录（模拟/真实下单的成交流水）。"""
     symbol: str
     side: str                       # "buy" 或 "sell"
     price: float
@@ -42,8 +42,6 @@ class OrderRecord:
     timestamp: datetime
     mode: str                       # "paper" 或 "live"
     order_id: str = ""
-    status: str = "pending"
-    pnl: float = 0.0
 
 
 @dataclass
@@ -142,21 +140,17 @@ CREATE TABLE IF NOT EXISTS orders (
     leverage INTEGER DEFAULT 1,                     -- 杠杆倍数
     timestamp TIMESTAMPTZ NOT NULL,                 -- 下单时间（带时区）
     mode VARCHAR(20) NOT NULL,                      -- 交易模式，可选值："paper"(模拟交易) | "live_confirm"(实盘人工确认) | "live_auto"(实盘全自动)
-    order_id VARCHAR(50) DEFAULT '',               -- 订单编号，模拟单以 "PAPER-" 前缀，真实单为交易所返回的 ID
-    status VARCHAR(20) DEFAULT 'pending',          -- 订单状态，可选值："pending"(待成交) | "filled"(已成交) | "cancelled"(已撤单) | "rejected"(被拒绝)
-    pnl NUMERIC(20,8) DEFAULT 0                    -- 盈亏金额（平仓后更新，正=盈利，负=亏损）
+    order_id VARCHAR(50) DEFAULT ''                 -- 订单编号，模拟单以 "PAPER-" 前缀，真实单为交易所返回的 ID
 );
 
 -- 订单表注释
-COMMENT ON TABLE orders IS '交易订单记录表，包含模拟和真实下单的完整流水';
+COMMENT ON TABLE orders IS '交易订单记录表，包含模拟和真实下单的成交流水';
 COMMENT ON COLUMN orders.side IS '交易方向："buy"=买入/做多, "sell"=卖出/做空';
 COMMENT ON COLUMN orders.price IS '实际成交价格（USDT）';
 COMMENT ON COLUMN orders.quantity IS '实际成交数量（基础币数量）';
 COMMENT ON COLUMN orders.leverage IS '实际使用的杠杆倍数';
 COMMENT ON COLUMN orders.mode IS '交易模式："paper"=模拟交易(不下真实订单), "live_confirm"=实盘需人工确认, "live_auto"=实盘全自动';
 COMMENT ON COLUMN orders.order_id IS '订单编号，模拟单格式 "PAPER-1"，真实单为 Binance 返回的 orderId';
-COMMENT ON COLUMN orders.status IS '订单状态："pending"=待成交, "filled"=已成交, "cancelled"=已撤单, "rejected"=被风控拒绝';
-COMMENT ON COLUMN orders.pnl IS '该笔订单的盈亏（USDT），仅平仓后有意义，正数=盈利，负数=亏损';
 
 -- ============================================================
 -- 持仓记录表（当前及历史持仓）
@@ -306,22 +300,13 @@ class DataStore:
         with self._get_conn().cursor() as cur:
             cur.execute(
                 """INSERT INTO orders (symbol, side, price, quantity, leverage,
-                                       timestamp, mode, order_id, status, pnl)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                       timestamp, mode, order_id)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
                 (order.symbol, order.side, order.price, order.quantity,
-                 order.leverage, order.timestamp, order.mode, order.order_id,
-                 order.status, order.pnl),
+                 order.leverage, order.timestamp, order.mode, order.order_id),
             )
             return cur.fetchone()[0]
-
-    def update_order_status(self, order_id: int, status: str, pnl: float = 0.0):
-        """更新订单状态。"""
-        with self._get_conn().cursor() as cur:
-            cur.execute(
-                "UPDATE orders SET status = %s, pnl = %s WHERE id = %s",
-                (status, pnl, order_id),
-            )
 
     # ==================== 持仓管理 ====================
 
