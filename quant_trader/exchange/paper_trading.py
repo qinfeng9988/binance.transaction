@@ -381,6 +381,14 @@ class PaperTradingEngine:
             avg_price = (existing.entry_price * existing.quantity + order.price * order.amount) / total_qty
             existing.entry_price = avg_price
             existing.quantity = total_qty
+            # 同步到数据库
+            if data_store:
+                data_store.update_position(
+                    symbol=order.symbol,
+                    quantity=total_qty,
+                    entry_price=avg_price,
+                    stop_loss=stop_loss,
+                )
         else:
             self.positions[order.symbol] = MockPosition(
                 symbol=order.symbol,

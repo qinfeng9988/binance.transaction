@@ -28,6 +28,17 @@ TIMEFRAME_SECONDS = {
     "1d": 86400,
 }
 
+# 当前周期 → 上级周期映射（多周期趋势确认）
+PARENT_TIMEFRAME = {
+    "1m": "15m",
+    "3m": "1h",
+    "5m": "1h",
+    "15m": "4h",
+    "1h": "4h",
+    "4h": "1d",
+    "1d": "1w",
+}
+
 
 class Engine:
     """交易引擎核心，负责调度策略、处理信号、管理生命周期。"""
@@ -41,6 +52,7 @@ class Engine:
         self._running = False
         self._paused = False
         self._strategy_cache: dict | None = None
+        self._klines_cache: dict[tuple[str, str], list[dict]] = {}  # (symbol, timeframe) → 最近 K 线
         self._last_signal_time: dict[str, float] = {}  # symbol → 最后处理信号的时间戳（epoch秒）
         self._signal_cooldown = 300                      # 同币种最短信号间隔（秒）
 
@@ -156,6 +168,9 @@ class Engine:
                 # 反转：ccxt 返回最旧在前，策略需要最新在前
                 klines.reverse()
 
+                # 缓存 K 线数据（供多周期趋势确认使用）
+                self._klines_cache[(symbol, timeframe)] = klines
+
                 # 存入数据库
                 self._store_klines(klines, symbol, timeframe)
 
@@ -166,7 +181,12 @@ class Engine:
                 # 执行策略 — 同一币种的信号去重（冷却时间内跳过重复信号）
                 strategy = self._get_strategy(strategy_name)
                 if strategy:
-                    signals = strategy.on_bar(symbol, timeframe, klines, self.paper_engine.positions.values())
+                    # 获取上级周期 K 线（多周期趋势确认）
+                    parent_tf = PARENT_TIMEFRAME.get(timeframe)
+                    parent_klines = self._klines_cache.get((symbol, parent_tf)) if parent_tf else None
+                    signals = strategy.on_bar(symbol, timeframe, klines,
+                                              self.paper_engine.positions.values(),
+                                              parent_klines=parent_klines)
                     now = _time.time()
                     for signal in signals:
                         last = self._last_signal_time.get(signal.symbol, 0)
@@ -214,7 +234,7 @@ class Engine:
         )
 
         # 写入数据库
-        self.data_store.insert_signal(SignalRecord(
+        signal_id = self.data_store.insert_signal(SignalRecord(
             strategy_name=signal.strategy_name,
             symbol=signal.symbol,
             timeframe=signal.timeframe,
@@ -235,7 +255,7 @@ class Engine:
                 return
 
             signal.leverage = risk_result["leverage"]
-            self._execute_paper_trade(signal)
+            self._execute_paper_trade(signal, signal_id)
 
         elif mode == "live_confirm":
             # 实盘+人工确认：推送通知等待确认
@@ -250,9 +270,9 @@ class Engine:
                 return
 
             signal.leverage = risk_result["leverage"]
-            await self._execute_live_trade(signal)
+            await self._execute_live_trade(signal, signal_id)
 
-    def _execute_paper_trade(self, signal: Signal):
+    def _execute_paper_trade(self, signal: Signal, signal_id: int = None):
         """模拟交易执行。"""
         from .core.data_store import PositionRecord
         from datetime import datetime, timezone
@@ -286,6 +306,7 @@ class Engine:
                     timestamp=signal.timestamp,
                     mode="paper",
                     order_id=order.order_id,
+                    signal_id=signal_id,
                 ))
         else:
             # 开仓或加仓
@@ -301,7 +322,7 @@ class Engine:
 
             if order:
                 # 记录到数据库 - 订单
-                self.data_store.insert_order(OrderRecord(
+                order_db_id = self.data_store.insert_order(OrderRecord(
                     symbol=signal.symbol,
                     side=signal.signal_type,
                     price=signal.price,
@@ -310,6 +331,7 @@ class Engine:
                     timestamp=signal.timestamp,
                     mode="paper",
                     order_id=order.order_id,
+                    signal_id=signal_id,
                 ))
 
                 # 如果是新建持仓（非加仓），写入持仓记录到数据库
@@ -325,7 +347,7 @@ class Engine:
                             entry_time=datetime.now(tz=timezone.utc),
                             stop_loss=signal.stop_loss,
                             status="open",
-                        ))
+                        ), open_order_id=order_db_id)
 
         trade_logger = logging.getLogger("trades")
         trade_logger.info(
@@ -334,7 +356,7 @@ class Engine:
             quantity, signal.leverage, order.order_id if order else "FAILED",
         )
 
-    async def _execute_live_trade(self, signal: Signal):
+    async def _execute_live_trade(self, signal: Signal, signal_id: int = None):
         """实盘下单（待 API Key 配置后启用）。"""
         quantity = (self.paper_engine.balance * 0.1) / signal.price
 
@@ -369,8 +391,13 @@ class Engine:
         from .strategies.s_r_levels import SupportResistanceStrategy
 
         # 策略注册表：名称 -> 策略类
+        # 多个币种策略可映射到同一个策略类，通过不同参数区分
         strategy_registry = {
             "support_resistance": SupportResistanceStrategy,
+            "support_resistance_btc": SupportResistanceStrategy,
+            "support_resistance_eth": SupportResistanceStrategy,
+            "support_resistance_sol": SupportResistanceStrategy,
+            "support_resistance_paxg": SupportResistanceStrategy,
         }
 
         result = {}

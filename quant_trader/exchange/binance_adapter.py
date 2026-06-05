@@ -96,16 +96,26 @@ class BinanceAdapter(ExchangeAdapter):
         await asyncio.sleep(delay)
         self.connect()
 
-    async def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int = 500) -> list[dict]:
+    async def fetch_ohlcv(self, symbol: str, timeframe: str,
+                          limit: int = 500, since: int | None = None) -> list[dict]:
         """获取 K 线数据。
 
         返回 list[dict]，字段: timestamp, open, high, low, close, volume
         含 3 次重试。
+
+        参数:
+            symbol: 交易对
+            timeframe: K 线周期
+            limit: 最大返回根数
+            since: 起始时间戳（毫秒），用于拉取历史数据
         """
         for attempt in range(3):
             try:
+                kwargs: dict = {"limit": limit}
+                if since is not None:
+                    kwargs["since"] = since
                 ohlcv = await self._run_sync(
-                    self.exchange.fetch_ohlcv, symbol, timeframe, limit=limit
+                    self.exchange.fetch_ohlcv, symbol, timeframe, **kwargs
                 )
                 self._reconnect_attempts = 0
                 return [

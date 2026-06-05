@@ -18,14 +18,15 @@ class BaseStrategy(ABC):
 
     @abstractmethod
     def on_bar(self, symbol: str, timeframe: str, klines: list[dict],
-               positions: list) -> list[Signal]:
+               positions: list, parent_klines: list[dict] | None = None) -> list[Signal]:
         """每收到一根新 K 线时调用。
 
         参数:
             symbol: 交易对 (如 "BTC/USDT")
             timeframe: K 线周期 (如 "5m", "1h")
-            klines: OHLCV 数据列表（最新一根在最后）
+            klines: OHLCV 数据列表（最新一根在最前）
             positions: 当前持仓列表
+            parent_klines: 上级周期 K 线数据（用于多周期趋势确认，可选）
 
         返回:
             Signal 对象列表（无动作为空列表）

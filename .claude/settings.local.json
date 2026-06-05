@@ -38,7 +38,20 @@
       "Bash(python -c \"import quant_trader.main; print\\('OK'\\)\")",
       "Bash(python *)",
       "Bash(taskkill /F /PID 13340)",
-      "Bash(cmd //c \"taskkill /F /PID 13340\")"
+      "Bash(cmd //c \"taskkill /F /PID 13340\")",
+      "Bash(export PGPASSWORD='123456')",
+      "Bash(.venv/bin/python *)",
+      "Bash(openspec-cn list *)",
+      "Bash(/Users/qinj057/develop/binance.transaction-ui/.venv/bin/python scripts/backtest.py --symbol BTC/USDT --timeframe 5m --days 60)",
+      "Bash(/Users/qinj057/develop/binance.transaction-ui/.venv/bin/python scripts/backtest.py --symbol ETH/USDT --timeframe 1h --days 60)",
+      "Bash(awk '{print $5,$6}')",
+      "Bash(awk -F']' '{print $2}')",
+      "Bash(wait)",
+      "Bash(awk '/回测报告/,/逐笔交易明细/' /Users/qinj057/.claude/projects/-Users-qinj057-develop-binance-transaction-ui/f7a6f9b9-0168-4e16-8fa7-cd9bc9e795a3/tool-results/bqpzwma46.txt)",
+      "Bash(awk '/逐笔交易明细/,/end_of_data/')",
+      "Bash(awk '{print $NF}')",
+      "Bash(awk '{print $\\(NF-1\\)}')",
+      "Bash(git checkout *)"
     ]
   }
 }

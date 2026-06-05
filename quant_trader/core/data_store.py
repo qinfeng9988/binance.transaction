@@ -42,6 +42,14 @@ class OrderRecord:
     timestamp: datetime
     mode: str                       # "paper" 或 "live"
     order_id: str = ""
+    signal_id: int | None = None    # 触发该订单的信号 ID
+
+    def __post_init__(self):
+        self.price = float(self.price)
+        self.quantity = float(self.quantity)
+        self.leverage = int(self.leverage)
+        if self.signal_id is not None:
+            self.signal_id = int(self.signal_id)
 
 
 @dataclass
@@ -55,6 +63,11 @@ class SignalRecord:
     stop_loss: float
     timestamp: datetime
     leverage: int = 1
+
+    def __post_init__(self):
+        self.price = float(self.price)
+        self.stop_loss = float(self.stop_loss)
+        self.leverage = int(self.leverage)
 
 
 @dataclass
@@ -71,6 +84,14 @@ class PositionRecord:
     exit_time: datetime | None = None
     pnl: float = 0.0
     status: str = "open"            # "open" 或 "closed"
+
+    def __post_init__(self):
+        self.entry_price = float(self.entry_price)
+        self.quantity = float(self.quantity)
+        self.leverage = int(self.leverage)
+        self.stop_loss = float(self.stop_loss)
+        self.exit_price = float(self.exit_price)
+        self.pnl = float(self.pnl)
 
 
 # ============================================================
@@ -140,7 +161,8 @@ CREATE TABLE IF NOT EXISTS orders (
     leverage INTEGER DEFAULT 1,                     -- 杠杆倍数
     timestamp TIMESTAMPTZ NOT NULL,                 -- 下单时间（带时区）
     mode VARCHAR(20) NOT NULL,                      -- 交易模式，可选值："paper"(模拟交易) | "live_confirm"(实盘人工确认) | "live_auto"(实盘全自动)
-    order_id VARCHAR(50) DEFAULT ''                 -- 订单编号，模拟单以 "PAPER-" 前缀，真实单为交易所返回的 ID
+    order_id VARCHAR(50) DEFAULT '',                -- 订单编号，模拟单以 "PAPER-" 前缀，真实单为交易所返回的 ID
+    signal_id INTEGER REFERENCES signals(id) ON DELETE SET NULL  -- 触发该订单的信号
 );
 
 -- 订单表注释
@@ -167,7 +189,8 @@ CREATE TABLE IF NOT EXISTS positions (
     exit_price NUMERIC(20,8) DEFAULT 0,            -- 平仓价格（未平仓时为 0）
     exit_time TIMESTAMPTZ,                          -- 平仓时间（未平仓时为 NULL）
     pnl NUMERIC(20,8) DEFAULT 0,                   -- 盈亏金额（正=盈利，负=亏损，未平仓时为 0）
-    status VARCHAR(10) DEFAULT 'open'              -- 持仓状态，可选值："open"(持仓中) | "closed"(已平仓) | "stop_loss"(止损平仓) | "take_profit"(止盈平仓)
+    status VARCHAR(10) DEFAULT 'open',             -- 持仓状态，可选值："open"(持仓中) | "closed"(已平仓) | "stop_loss"(止损平仓) | "take_profit"(止盈平仓)
+    open_order_id INTEGER REFERENCES orders(id) ON DELETE SET NULL  -- 开仓订单 ID
 );
 
 -- 持仓表注释
@@ -281,48 +304,61 @@ class DataStore:
 
     # ==================== 信号记录 ====================
 
-    def insert_signal(self, signal: SignalRecord):
-        """记录策略产生的交易信号。"""
+    def insert_signal(self, signal: SignalRecord) -> int:
+        """记录策略产生的交易信号，返回信号 ID。"""
         with self._get_conn().cursor() as cur:
             cur.execute(
                 """INSERT INTO signals (strategy_name, symbol, timeframe, signal_type,
                                         price, stop_loss, timestamp, leverage)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                   RETURNING id""",
                 (signal.strategy_name, signal.symbol, signal.timeframe,
                  signal.signal_type, signal.price, signal.stop_loss,
                  signal.timestamp, signal.leverage),
             )
+            return cur.fetchone()[0]
 
     # ==================== 订单记录 ====================
 
     def insert_order(self, order: OrderRecord) -> int:
-        """记录一笔订单。"""
+        """记录一笔订单，返回订单 ID。"""
         with self._get_conn().cursor() as cur:
             cur.execute(
                 """INSERT INTO orders (symbol, side, price, quantity, leverage,
-                                       timestamp, mode, order_id)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                                       timestamp, mode, order_id, signal_id)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
                 (order.symbol, order.side, order.price, order.quantity,
-                 order.leverage, order.timestamp, order.mode, order.order_id),
+                 order.leverage, order.timestamp, order.mode, order.order_id,
+                 order.signal_id),
             )
             return cur.fetchone()[0]
 
     # ==================== 持仓管理 ====================
 
-    def open_position(self, position: PositionRecord) -> int:
-        """开仓记录。"""
+    def open_position(self, position: PositionRecord, open_order_id: int = None) -> int:
+        """开仓记录，返回持仓 ID。"""
         with self._get_conn().cursor() as cur:
             cur.execute(
                 """INSERT INTO positions (symbol, side, entry_price, quantity, leverage,
-                                          entry_time, stop_loss, status)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                                          entry_time, stop_loss, status, open_order_id)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
                 (position.symbol, position.side, position.entry_price,
                  position.quantity, position.leverage, position.entry_time,
-                 position.stop_loss, position.status),
+                 position.stop_loss, position.status, open_order_id),
             )
             return cur.fetchone()[0]
+
+    def update_position(self, symbol: str, quantity: float, entry_price: float, stop_loss: float = 0.0):
+        """更新持仓的数量、入场价和止损价（用于加仓/减仓场景）。"""
+        with self._get_conn().cursor() as cur:
+            cur.execute(
+                """UPDATE positions
+                   SET quantity = %s, entry_price = %s, stop_loss = %s
+                   WHERE symbol = %s AND status = 'open'""",
+                (quantity, entry_price, stop_loss, symbol),
+            )
 
     def close_position(self, position_id: int, exit_price: float, pnl: float):
         """平仓记录。"""

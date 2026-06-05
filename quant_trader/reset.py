@@ -145,8 +145,8 @@ def main():
                         help="归档表后缀（默认使用时间戳）")
     parser.add_argument("--force", "-f", action="store_true",
                         help="跳过确认")
-    parser.add_argument("--clear-logs", nargs="?", const=5000, type=int, default=0,
-                        help="清理日志文件，保留最近 N 行（默认 5000）")
+    parser.add_argument("--clear-logs", nargs="?", const=500, type=int, default=0,
+                        help="清理日志文件，保留最近 N 行（默认 500）")
     args = parser.parse_args()
 
     cfg = ConfigLoader()

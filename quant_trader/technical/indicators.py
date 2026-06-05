@@ -99,3 +99,135 @@ def bollinger_bands(klines: list[dict], period: int = 20, std_dev: float = 2.0) 
         for i in range(len(closes))
     ])
     return middle + std_dev * std, middle, middle - std_dev * std
+
+
+def atr(klines: list[dict], period: int = 14) -> np.ndarray:
+    """计算 ATR（平均真实波幅）。
+
+    返回: ATR 值数组
+    """
+    highs = np.array([k["high"] for k in klines], dtype=float)
+    lows = np.array([k["low"] for k in klines], dtype=float)
+    closes = _extract_closes(klines)
+
+    if HAS_TALIB:
+        return talib.ATR(highs, lows, closes, timeperiod=period)
+
+    # 纯 numpy 实现
+    tr = np.zeros_like(closes)
+    tr[0] = highs[0] - lows[0]
+    for i in range(1, len(closes)):
+        tr1 = highs[i] - lows[i]
+        tr2 = abs(highs[i] - closes[i - 1])
+        tr3 = abs(lows[i] - closes[i - 1])
+        tr[i] = max(tr1, tr2, tr3)
+
+    atr_vals = np.zeros_like(closes)
+    atr_vals[period - 1] = tr[:period].mean()
+    for i in range(period, len(closes)):
+        atr_vals[i] = (atr_vals[i - 1] * (period - 1) + tr[i]) / period
+
+    return atr_vals
+
+
+def _calculate_dm_tr(klines: list[dict]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """计算 +DM, -DM 和 TR（真实波幅）。
+
+    返回: (plus_dm, minus_dm, tr)
+    """
+    highs = np.array([k["high"] for k in klines], dtype=float)
+    lows = np.array([k["low"] for k in klines], dtype=float)
+    closes = _extract_closes(klines)
+
+    n = len(closes)
+    plus_dm = np.zeros(n)
+    minus_dm = np.zeros(n)
+    tr = np.zeros(n)
+
+    for i in range(1, n):
+        up_move = highs[i] - highs[i - 1]
+        down_move = lows[i - 1] - lows[i]
+
+        if up_move > down_move and up_move > 0:
+            plus_dm[i] = up_move
+        if down_move > up_move and down_move > 0:
+            minus_dm[i] = down_move
+
+        tr1 = highs[i] - lows[i]
+        tr2 = abs(highs[i] - closes[i - 1])
+        tr3 = abs(lows[i] - closes[i - 1])
+        tr[i] = max(tr1, tr2, tr3)
+
+    return plus_dm, minus_dm, tr
+
+
+def _wilder_smooth(arr: np.ndarray, p: int) -> np.ndarray:
+    """Welles Wilder 平滑算法。"""
+    smoothed = np.zeros_like(arr)
+    smoothed[p] = arr[1:p + 1].sum()
+    for i in range(p + 1, len(arr)):
+        smoothed[i] = smoothed[i - 1] - (smoothed[i - 1] / p) + arr[i]
+    return smoothed
+
+
+def plus_di(klines: list[dict], period: int = 14) -> np.ndarray:
+    """计算 +DI（正向趋向指标）。
+
+    返回: +DI 值数组
+    """
+    highs = np.array([k["high"] for k in klines], dtype=float)
+    lows = np.array([k["low"] for k in klines], dtype=float)
+    closes = _extract_closes(klines)
+
+    if HAS_TALIB:
+        return talib.PLUS_DI(highs, lows, closes, timeperiod=period)
+
+    plus_dm, _, tr = _calculate_dm_tr(klines)
+    atr_smoothed = _wilder_smooth(tr, period)
+    return 100 * _wilder_smooth(plus_dm, period) / np.where(atr_smoothed == 0, 1e-10, atr_smoothed)
+
+
+def minus_di(klines: list[dict], period: int = 14) -> np.ndarray:
+    """计算 -DI（负向趋向指标）。
+
+    返回: -DI 值数组
+    """
+    highs = np.array([k["high"] for k in klines], dtype=float)
+    lows = np.array([k["low"] for k in klines], dtype=float)
+    closes = _extract_closes(klines)
+
+    if HAS_TALIB:
+        return talib.MINUS_DI(highs, lows, closes, timeperiod=period)
+
+    _, minus_dm, tr = _calculate_dm_tr(klines)
+    atr_smoothed = _wilder_smooth(tr, period)
+    return 100 * _wilder_smooth(minus_dm, period) / np.where(atr_smoothed == 0, 1e-10, atr_smoothed)
+
+
+def adx(klines: list[dict], period: int = 14) -> np.ndarray:
+    """计算 ADX（平均趋向指数）。
+
+    返回: ADX 值数组
+    """
+    if HAS_TALIB:
+        highs = np.array([k["high"] for k in klines], dtype=float)
+        lows = np.array([k["low"] for k in klines], dtype=float)
+        closes = _extract_closes(klines)
+        return talib.ADX(highs, lows, closes, timeperiod=period)
+
+    # 纯 numpy 实现
+    n = len(klines)
+    plus_dm, minus_dm, tr = _calculate_dm_tr(klines)
+
+    atr_smoothed = _wilder_smooth(tr, period)
+    pdi = 100 * _wilder_smooth(plus_dm, period) / np.where(atr_smoothed == 0, 1e-10, atr_smoothed)
+    mdi = 100 * _wilder_smooth(minus_dm, period) / np.where(atr_smoothed == 0, 1e-10, atr_smoothed)
+
+    dx = 100 * abs(pdi - mdi) / np.where(pdi + mdi == 0, 1e-10, pdi + mdi)
+
+    adx_vals = np.zeros(n)
+    adx_vals[period * 2 - 1] = dx[period:period * 2].mean()
+    for i in range(period * 2, n):
+        adx_vals[i] = (adx_vals[i - 1] * (period - 1) + dx[i]) / period
+
+    return adx_vals
