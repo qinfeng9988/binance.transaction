@@ -542,15 +542,16 @@ class SupportResistanceStrategy(BaseStrategy):
     def on_bar(self, symbol: str, timeframe: str, klines: list[dict],
                positions: list, parent_klines: list[dict] | None = None,
                grandparent_klines: list[dict] | None = None,
-               confirm_klines: list[dict] | None = None) -> list[Signal]:
+               confirm_klines: list[dict] | None = None,
+               funding_rate: float | None = None) -> list[Signal]:
         if len(klines) < 50:
             return []
 
         # 惰性初始化累计过滤统计（用于回测结束后的汇总分析）
         if not hasattr(self, "_filter_summary"):
             self._filter_summary = {
-                "buy": {"checked": 0, "distance": 0, "adx": 0, "di": 0, "quality": 0, "ema": 0, "rsi": 0, "volume": 0, "rejection": 0, "pullback": 0, "add": 0, "add_limit": 0, "add_quality": 0, "passed": 0},
-                "sell": {"checked": 0, "distance": 0, "adx": 0, "di": 0, "quality": 0, "ema": 0, "rsi": 0, "volume": 0, "rejection": 0, "pullback": 0, "add": 0, "add_limit": 0, "add_quality": 0, "passed": 0},
+                "buy": {"checked": 0, "distance": 0, "adx": 0, "di": 0, "quality": 0, "ema": 0, "rsi": 0, "volume": 0, "rejection": 0, "pullback": 0, "fr_hard_block": 0, "fr_penalty": 0, "add": 0, "add_limit": 0, "add_quality": 0, "passed": 0},
+                "sell": {"checked": 0, "distance": 0, "adx": 0, "di": 0, "quality": 0, "ema": 0, "rsi": 0, "volume": 0, "rejection": 0, "pullback": 0, "fr_hard_block": 0, "fr_penalty": 0, "add": 0, "add_limit": 0, "add_quality": 0, "passed": 0},
             }
 
         params = self.params
@@ -656,6 +657,16 @@ class SupportResistanceStrategy(BaseStrategy):
 
         # ---- 强趋势逆势过滤 ----
         strict_bias_mode = params.get("strict_bias_mode", False)
+
+        # ---- Funding Rate 过滤参数 ----
+        funding_filter_enabled = params.get("funding_filter_enabled", False)
+        funding_long_penalty_threshold = params.get("funding_long_penalty_threshold", 0.05)
+        funding_long_hard_block_threshold = params.get("funding_long_hard_block_threshold", 0.10)
+        funding_short_block_threshold = params.get("funding_short_block_threshold", -0.05)
+        funding_short_hard_block_threshold = params.get("funding_short_hard_block_threshold", -0.10)
+        funding_long_quality_penalty = params.get("funding_long_quality_penalty", -1.0)
+        funding_long_leverage_reduction_enabled = params.get("funding_long_leverage_reduction_enabled", False)
+        funding_long_leverage_reduction = params.get("funding_long_leverage_reduction", 0.6)
 
         # ========== 1. 多周期趋势确认 ==========
         trend_info = detect_trend_with_parent(
@@ -804,6 +815,33 @@ class SupportResistanceStrategy(BaseStrategy):
                 can_buy = False
                 buy_is_primary = False
 
+        # 过滤统计（用于诊断分析：每个 K 线周期记录各过滤层的拦截数）
+        filter_stats = {
+            "buy": {"checked": 0, "distance": 0, "adx": 0, "di": 0, "quality": 0, "ema": 0, "rsi": 0, "volume": 0, "rejection": 0, "pullback": 0, "fr_hard_block": 0, "fr_penalty": 0, "add": 0, "add_limit": 0, "add_quality": 0, "passed": 0},
+            "sell": {"checked": 0, "distance": 0, "adx": 0, "di": 0, "quality": 0, "ema": 0, "rsi": 0, "volume": 0, "rejection": 0, "pullback": 0, "fr_hard_block": 0, "fr_penalty": 0, "add": 0, "add_limit": 0, "add_quality": 0, "passed": 0},
+        }
+
+        # ========== 4a. Funding Rate 过滤（硬阈值：直接阻断方向）==========
+        if funding_filter_enabled and funding_rate is not None:
+            # 正 funding 过高：禁止做多
+            if funding_rate > funding_long_hard_block_threshold:
+                logger.info(
+                    "[FR过滤] %s %s: funding=%.4f%% > 硬阈值%.2f%%, 禁止做多",
+                    symbol, timeframe, funding_rate, funding_long_hard_block_threshold,
+                )
+                can_buy = False
+                buy_is_primary = False
+                filter_stats["buy"]["fr_hard_block"] += 1
+            # 负 funding 过低：禁止做空
+            if funding_rate < funding_short_hard_block_threshold:
+                logger.info(
+                    "[FR过滤] %s %s: funding=%.4f%% < 硬阈值%.2f%%, 禁止做空",
+                    symbol, timeframe, funding_rate, funding_short_hard_block_threshold,
+                )
+                can_sell = False
+                sell_is_primary = False
+                filter_stats["sell"]["fr_hard_block"] += 1
+
         # ========== 4b. 多周期共振确认（可选）==========
         if use_resonance and confirm_klines and len(confirm_klines) >= 50:
             # 检测确认周期趋势
@@ -871,12 +909,6 @@ class SupportResistanceStrategy(BaseStrategy):
 
         signals = []
 
-        # 过滤统计（用于诊断分析：每个 K 线周期记录各过滤层的拦截数）
-        filter_stats = {
-            "buy": {"checked": 0, "distance": 0, "adx": 0, "di": 0, "quality": 0, "ema": 0, "rsi": 0, "volume": 0, "rejection": 0, "pullback": 0, "add": 0, "add_limit": 0, "add_quality": 0, "passed": 0},
-            "sell": {"checked": 0, "distance": 0, "adx": 0, "di": 0, "quality": 0, "ema": 0, "rsi": 0, "volume": 0, "rejection": 0, "pullback": 0, "add": 0, "add_limit": 0, "add_quality": 0, "passed": 0},
-        }
-
         # 查找当前 symbol 的现有持仓（支持 dict 和 dataclass）
         existing_pos = None
         for pos in positions:
@@ -920,7 +952,25 @@ class SupportResistanceStrategy(BaseStrategy):
 
                 quality_score = support.get("quality_score", 0)
 
-                # --- 4x. 质量分级 ADX 检查 ---
+                # --- 4x. Funding Rate 软阈值：扣分 + 降杠杆 ---
+                original_leverage_for_log = leverage
+                if funding_filter_enabled and funding_rate is not None:
+                    if funding_rate > funding_long_penalty_threshold:
+                        quality_score += funding_long_quality_penalty
+                        filter_stats["buy"]["fr_penalty"] += 1
+                        logger.debug(
+                            "FR软阈值 %s %s 做多: funding=%.4f%% > %.2f%%, quality %.1f → %.1f",
+                            symbol, timeframe, funding_rate, funding_long_penalty_threshold,
+                            quality_score - funding_long_quality_penalty, quality_score,
+                        )
+                        if funding_long_leverage_reduction_enabled:
+                            leverage = max(1, int(leverage * funding_long_leverage_reduction))
+                            logger.debug(
+                                "FR降杠杆 %s %s 做多: %dx → %dx",
+                                symbol, timeframe, original_leverage_for_log, leverage,
+                            )
+
+                # --- 4y. 质量分级 ADX 检查 ---
                 effective_adx_min = adx_min_high_quality if quality_score >= quality_threshold_for_lower_adx else adx_min
                 if current_adx < effective_adx_min:
                     filter_stats["buy"]["adx"] += 1
@@ -1122,21 +1172,29 @@ class SupportResistanceStrategy(BaseStrategy):
                         "max_additions": max_additions_ranging if is_ranging else max_additions_trending,
                         "add_count": _get_pos_attr(existing_pos, "add_count", 0) if existing_pos else 0,
                         "is_ranging": is_ranging,
+                        "funding_rate": round(funding_rate, 4) if funding_rate is not None else None,
+                        "funding_penalty_applied": funding_filter_enabled and funding_rate is not None and funding_rate > funding_long_penalty_threshold,
+                        "pre_fr_leverage": original_leverage_for_log,
                     },
                 )
                 signals.append(signal)
                 filter_stats["buy"]["passed"] += 1
+                fr_info = ""
+                if funding_filter_enabled and funding_rate is not None and funding_rate > funding_long_penalty_threshold:
+                    fr_info = f", FR={funding_rate:.4f}%→penalty={funding_long_quality_penalty}"
+                    if funding_long_leverage_reduction_enabled and leverage < original_leverage_for_log:
+                        fr_info += f", lev={original_leverage_for_log}x→{leverage}x"
                 logger.info(
                     "做多信号 %s %s: 现价=%.2f, 支撑=%.2f, 距离=%.3f%%, "
                     "趋势=%s, 上级=%s, 偏向=%s, %s, 止损=%.2f, "
                     "base=%.1f trend=%+.1f recency=%+.1f final=%.1f, "
-                    "ADX=%.1f, +DI=%.1f, −DI=%.1f, RSI=%.1f, 量比=%.2f",
+                    "ADX=%.1f, +DI=%.1f, −DI=%.1f, RSI=%.1f, 量比=%.2f%s",
                     symbol, timeframe, current_price, s_price, distance_pct,
                     trend, parent_trend, bias,
                     "主方向" if buy_is_primary else "副方向(严格条件)",
                     stop_loss, base_score, t_bonus, r_bonus, quality_score,
                     current_adx, current_pdi, current_mdi,
-                    current_rsi, vol_ratio,
+                    current_rsi, vol_ratio, fr_info,
                 )
                 break  # 只取最近的一个支撑
 
@@ -1176,7 +1234,25 @@ class SupportResistanceStrategy(BaseStrategy):
 
                 quality_score = resistance.get("quality_score", 0)
 
-                # --- 4x. 质量分级 ADX 检查 ---
+                # --- 4x. Funding Rate 软阈值：做空扣分（对称设计） ---
+                original_leverage_for_log = leverage
+                if funding_filter_enabled and funding_rate is not None:
+                    if funding_rate < funding_short_block_threshold:
+                        quality_score += funding_long_quality_penalty  # 使用相同惩罚值
+                        filter_stats["sell"]["fr_penalty"] += 1
+                        logger.debug(
+                            "FR软阈值 %s %s 做空: funding=%.4f%% < %.2f%%, quality %.1f → %.1f",
+                            symbol, timeframe, funding_rate, funding_short_block_threshold,
+                            quality_score - funding_long_quality_penalty, quality_score,
+                        )
+                        if funding_long_leverage_reduction_enabled:
+                            leverage = max(1, int(leverage * funding_long_leverage_reduction))
+                            logger.debug(
+                                "FR降杠杆 %s %s 做空: %dx → %dx",
+                                symbol, timeframe, original_leverage_for_log, leverage,
+                            )
+
+                # --- 4y. 质量分级 ADX 检查 ---
                 effective_adx_min = adx_min_high_quality if quality_score >= quality_threshold_for_lower_adx else adx_min
                 if current_adx < effective_adx_min:
                     filter_stats["sell"]["adx"] += 1
@@ -1377,21 +1453,29 @@ class SupportResistanceStrategy(BaseStrategy):
                         "max_additions": max_additions_ranging if is_ranging else max_additions_trending,
                         "add_count": _get_pos_attr(existing_pos, "add_count", 0) if existing_pos else 0,
                         "is_ranging": is_ranging,
+                        "funding_rate": round(funding_rate, 4) if funding_rate is not None else None,
+                        "funding_penalty_applied": funding_filter_enabled and funding_rate is not None and funding_rate < funding_short_block_threshold,
+                        "pre_fr_leverage": original_leverage_for_log,
                     },
                 )
                 signals.append(signal)
                 filter_stats["sell"]["passed"] += 1
+                fr_info = ""
+                if funding_filter_enabled and funding_rate is not None and funding_rate < funding_short_block_threshold:
+                    fr_info = f", FR={funding_rate:.4f}%→penalty={funding_long_quality_penalty}"
+                    if funding_long_leverage_reduction_enabled and leverage < original_leverage_for_log:
+                        fr_info += f", lev={original_leverage_for_log}x→{leverage}x"
                 logger.info(
                     "做空信号 %s %s: 现价=%.2f, 压力=%.2f, 距离=%.3f%%, "
                     "趋势=%s, 上级=%s, 偏向=%s, %s, 止损=%.2f, "
                     "base=%.1f trend=%+.1f recency=%+.1f final=%.1f, "
-                    "ADX=%.1f, +DI=%.1f, −DI=%.1f, RSI=%.1f, 量比=%.2f",
+                    "ADX=%.1f, +DI=%.1f, −DI=%.1f, RSI=%.1f, 量比=%.2f%s",
                     symbol, timeframe, current_price, r_price, distance_pct,
                     trend, parent_trend, bias,
                     "主方向" if sell_is_primary else "副方向(严格条件)",
                     stop_loss, base_score, t_bonus, r_bonus, quality_score,
                     current_adx, current_pdi, current_mdi,
-                    current_rsi, vol_ratio,
+                    current_rsi, vol_ratio, fr_info,
                 )
                 break
 
@@ -1520,16 +1604,17 @@ class SupportResistanceStrategy(BaseStrategy):
 
         # ========== 7. 过滤统计汇总 + 累计 ==========
         for direction, stats in filter_stats.items():
-            if stats["checked"] > 0:
+            if any(v > 0 for v in stats.values()):
                 logger.info(
                     "[FILTER] %s %s %s: checked=%d distance=%d adx=%d di=%d "
                     "quality=%d ema=%d rsi=%d volume=%d rejection=%d pullback=%d "
-                    "add=%d add_limit=%d add_quality=%d passed=%d",
+                    "fr_hard=%d fr_penalty=%d add=%d add_limit=%d add_quality=%d passed=%d",
                     symbol, timeframe, direction,
                     stats["checked"], stats["distance"], stats["adx"], stats["di"],
                     stats["quality"], stats["ema"], stats["rsi"], stats["volume"],
-                    stats["rejection"], stats["pullback"], stats["add"],
-                    stats["add_limit"], stats["add_quality"], stats["passed"],
+                    stats["rejection"], stats["pullback"],
+                    stats["fr_hard_block"], stats["fr_penalty"],
+                    stats["add"], stats["add_limit"], stats["add_quality"], stats["passed"],
                 )
                 # 累加到实例级累计统计
                 cum = self._filter_summary[direction]
@@ -1541,6 +1626,6 @@ class SupportResistanceStrategy(BaseStrategy):
     def get_filter_summary(self) -> dict:
         """返回整个回测/实盘期间的累计过滤统计。"""
         return getattr(self, "_filter_summary", {
-            "buy": {"checked": 0, "distance": 0, "adx": 0, "di": 0, "quality": 0, "ema": 0, "rsi": 0, "volume": 0, "rejection": 0, "pullback": 0, "add": 0, "add_limit": 0, "add_quality": 0, "passed": 0},
-            "sell": {"checked": 0, "distance": 0, "adx": 0, "di": 0, "quality": 0, "ema": 0, "rsi": 0, "volume": 0, "rejection": 0, "pullback": 0, "add": 0, "add_limit": 0, "add_quality": 0, "passed": 0},
+            "buy": {"checked": 0, "distance": 0, "adx": 0, "di": 0, "quality": 0, "ema": 0, "rsi": 0, "volume": 0, "rejection": 0, "pullback": 0, "fr_hard_block": 0, "fr_penalty": 0, "add": 0, "add_limit": 0, "add_quality": 0, "passed": 0},
+            "sell": {"checked": 0, "distance": 0, "adx": 0, "di": 0, "quality": 0, "ema": 0, "rsi": 0, "volume": 0, "rejection": 0, "pullback": 0, "fr_hard_block": 0, "fr_penalty": 0, "add": 0, "add_limit": 0, "add_quality": 0, "passed": 0},
         })

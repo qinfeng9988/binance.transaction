@@ -166,7 +166,11 @@ quality_score = strength + vp_bonus + vol_surge_bonus + density_bonus
     │       ├── add_count < max_additions？（震荡1次/趋势2次）
     │       └── add_count >= 1 时 quality_score >= 6.0？（第2次加仓门槛）
     ↓
-9. 生成 Signal（metadata 携带 max_additions）
+9. Funding Rate 过滤（v1.5.0）
+    ├── 硬阈值（>+0.10% 或 <-0.10%）→ 直接禁止对应方向
+    └── 软阈值（>+0.05% 或 <-0.05%）→ quality_score -1.0，可选降杠杆
+    ↓
+10. 生成 Signal（metadata 携带 funding_rate）
 ```
 
 ### 2.2 加仓机制（v1.4.1）
@@ -193,7 +197,111 @@ quality_score = strength + vp_bonus + vol_surge_bonus + density_bonus
 
 **v1.4.2 币种差异**：BTC 开启加仓（震荡 1 次 / 趋势 2 次）；ETH 与 SOL 关闭加仓（`max_additions_ranging/trending = 0`），避免 1h 低频率仓位过重及 SOL 高波动风险。
 
-### 2.3 入场条件
+### 2.3 Funding Rate 过滤（v1.5.0）
+
+Funding Rate（资金费率）反映永续合约多空双方的情绪和拥挤度。极端 funding 往往预示挤仓/反转风险，在信号生成前增加 funding rate 过滤可显著减少此类止损。
+
+**关键发现**：Binance 对 BTC/ETH 的 funding rate 有硬性上限（±0.01%），因此原配置的 0.05%/0.10% 阈值永远不可能触发。v1.5.0 最终阈值基于近一年（1095 条）资金费率分位数分析制定。
+
+#### 过滤规则
+
+| 层级 | 触发条件 | 处理方式 | 代码位置 |
+|------|---------|---------|---------|
+| **硬阈值** | funding > hard_block | **直接禁止该方向整根 K 线** | 步骤 4a，S/R 识别**之前** |
+| **软阈值** | funding > penalty | quality_score **-1.0** + 可选降杠杆 | 步骤 5 内部，distance 检查**之后** |
+
+**设计逻辑**：
+- 硬阈值在前：极端拥挤期直接关闭方向，不再浪费计算资源检查 S/R 位
+- 软阈值在后：price 已靠近 S/R 位后才降级处理，避免过滤掉正常信号
+
+#### 最终阈值配置（基于分位数分析）
+
+| 币种 | 做多软阈值 | 做多硬阈值 | 做空软阈值 | 做空硬阈值 | 杠杆缩减 | 分析依据 |
+|------|-----------|-----------|-----------|-----------|---------|---------|
+| **BTC** | +0.008% | +0.009% | -0.006% | -0.010% | 0.6（5x→3x） | 正向 80% 分位≈0.008%，交易所上限 0.01% |
+| **ETH** | +0.008% | +0.009% | -0.008% | -0.015% | 0.6（5x→3x） | 正向 80% 分位≈0.008%，负向 5% 分位≈-0.015% |
+| **SOL** | +0.012% | +0.018% | -0.022% | -0.070% | 0.7（3x→2x） | 正向 90% 分位≈0.01%，负向 10% 分位≈-0.012% |
+| **PAXG** | — | — | — | — | — | 默认关闭 |
+
+#### 杠杆降低机制
+
+当 funding 触发软阈值且 `funding_long_leverage_reduction_enabled: true` 时：
+
+```
+新杠杆 = max(1, floor(原杠杆 × reduction_factor))
+```
+
+| 币种 | reduction_factor | 示例 |
+|------|-----------------|------|
+| BTC | 0.6 | 5x → 3x |
+| ETH | 0.6 | 5x → 3x |
+| SOL | 0.7 | 3x → 2x |
+
+#### 币种差异配置（YAML）
+
+```yaml
+# BTC/USDT
+funding_filter_enabled: true
+funding_long_penalty_threshold: 0.008
+funding_long_hard_block_threshold: 0.009
+funding_short_block_threshold: -0.006
+funding_short_hard_block_threshold: -0.010
+funding_long_quality_penalty: -1.0
+funding_long_leverage_reduction_enabled: true
+funding_long_leverage_reduction: 0.6
+
+# ETH/USDT
+funding_long_penalty_threshold: 0.008
+funding_long_hard_block_threshold: 0.009
+funding_short_block_threshold: -0.008
+funding_short_hard_block_threshold: -0.015
+funding_long_leverage_reduction: 0.6
+
+# SOL/USDT
+funding_long_penalty_threshold: 0.012
+funding_long_hard_block_threshold: 0.018
+funding_short_block_threshold: -0.022
+funding_short_hard_block_threshold: -0.070
+funding_long_leverage_reduction: 0.7
+
+# PAXG/USDT
+funding_filter_enabled: false
+```
+
+#### 实现位置
+
+| 功能 | 文件 | 说明 |
+|------|------|------|
+| 实时数据获取 | `exchange/binance_adapter.py:fetch_funding_rate()` | ccxt 获取当前 funding rate |
+| 历史数据缓存 | `scripts/fetch_funding_history.py` | 预拉取 JSON 缓存，供回测使用 |
+| 引擎缓存 | `main.py:_get_funding_rate()` | 60 秒 TTL，每周期复用 |
+| 硬阈值过滤 | `strategies/s_r_levels.py` 步骤 4a | 设置 `can_buy=False` / `can_sell=False` |
+| 软阈值过滤 | `strategies/s_r_levels.py` 步骤 5 | `quality_score -= 1.0`，可选降杠杆 |
+| 回测加载 | `scripts/backtest_range.py` | `_load_funding_rates()` + `_match_funding_rate()` |
+
+#### 日志输出示例
+
+```
+[FR过滤] BTC/USDT 5m: funding=+0.0100% > 硬阈值0.01%, 禁止做多
+[FILTER] BTC/USDT 5m buy: checked=0 ... fr_hard=1 fr_penalty=0 ...
+FR软阈值 SOL/USDT 5m 做空: funding=-0.0250% < -0.02%, quality 6.0 → 5.0
+做多信号 BTC/USDT 5m: 现价=... FR=+0.0085%→penalty=-1.0, lev=5x→3x
+```
+
+#### 回测验证（YTD 2026-01-01 ~ 2026-06-09）
+
+| 组合 | 收益 | 交易 | 胜率 | 回撤 | PF | FR 硬阻断 | FR 软惩罚 |
+|------|------|------|------|------|----|-----------|-----------|
+| BTC 5m | **+31.42%** | 30 | 23.3% | 6.16% | 4.01 | Buy 602 / Sell 315 | Buy 26 / Sell 49 |
+| ETH 1h | **+16.74%** | 30 | 70.0% | 6.32% | 2.82 | Buy 144 / Sell 92 | Buy 15 / Sell 22 |
+| SOL 5m | **+7.29%** | 348 | 57.5% | 2.89% | 1.46 | Buy 0 / Sell 0 | Buy 0 / Sell 879 |
+
+**验证结论**：
+- BTC：硬阈值有效拦截顶格拥挤时段（约 1.3% K 线），单笔大赚（+29,170）支撑整体收益
+- ETH：FR 过滤后胜率保持 70%，5-6 月连续盈利
+- SOL：做空方向是 FR 核心价值，硬阻断完全消失、软惩罚降至 879 次时收益最优（+7.29%）
+
+### 2.4 入场条件
 
 #### BTC/USDT (5m) - 做多（Buy）
 
@@ -240,7 +348,7 @@ quality_score = strength + vp_bonus + vol_surge_bonus + density_bonus
 | RSI(14) | 35 < RSI < 75 / 25 < RSI < 58 | RSI < 45 / RSI > 55 |
 | 成交量爆发 | 量比 >= 1.5× | 量比 >= 1.6× |
 
-### 2.4 止损设置（ATR 动态）
+### 2.5 止损设置（ATR 动态）
 
 ```
 止损距离 = ATR(14) × atr_multiplier
@@ -260,7 +368,7 @@ quality_score = strength + vp_bonus + vol_surge_bonus + density_bonus
 
 **实现位置：** `quant_trader/strategies/s_r_levels.py:compute_dynamic_stop_loss()`
 
-### 2.5 出场条件
+### 2.6 出场条件
 
 | 类型 | 条件 | 说明 |
 |------|------|------|
@@ -641,6 +749,18 @@ strategy_registry = {
 
 ### 4.3 回测脚本
 
+**回测前需先拉取 Funding Rate 缓存（首次或数据过期时）：**
+
+```bash
+# 拉取所有币种的 funding rate 历史
+python scripts/fetch_funding_history.py --all --days 60
+
+# 或单独拉取某个币种
+python scripts/fetch_funding_history.py --symbol BTC/USDT --days 60
+```
+
+**执行回测：**
+
 ```bash
 # BTC 回测
 python scripts/backtest.py --symbol BTC/USDT --timeframe 5m --days 60
@@ -651,6 +771,8 @@ python scripts/backtest_range.py --symbol BTC/USDT --timeframe 5m --start 2026-0
 # ETH 回测
 python scripts/backtest.py --symbol ETH/USDT --timeframe 1h --days 60
 ```
+
+> **注意**：回测时若 funding rate 缓存缺失，将自动跳过 FR 过滤（日志会提示），结果与关闭 `funding_filter_enabled` 一致。
 
 ## 5. 风控集成
 
@@ -668,6 +790,7 @@ python scripts/backtest.py --symbol ETH/USDT --timeframe 1h --days 60
 | 日累计亏损 | 否 | **是** | 风控检查 |
 | 最大持仓数 | 否 | **是** | 风控检查 |
 | 信号冷却期 | **是** | 否 | 引擎层 220 秒同币种冷却 |
+| Funding Rate 过滤 | **是** | 否 | v1.5.0：硬阈值阻断 + 软阈值扣分/降杠杆 |
 | 移动止损 | 策略内（已禁用） | 否 | v1.4.0 测试后关闭 |
 | 结构化止损 | 策略内（已禁用） | 否 | v1.4.0 测试后关闭 |
 | 部分止盈 | 策略内（ETH/SOL启用） | 是 | v1.4.0: BTC禁用, ETH/SOL启用2R/40% |

@@ -78,6 +78,15 @@ strategies:
     add_quality_tier2: 6.0
     # ---- 强趋势逆势过滤 ----
     strict_bias_mode: true
+    # ---- Funding Rate 过滤 ----
+    funding_filter_enabled: true
+    funding_long_penalty_threshold: 0.008
+    funding_long_hard_block_threshold: 0.009
+    funding_short_block_threshold: -0.006
+    funding_short_hard_block_threshold: -0.010
+    funding_long_quality_penalty: -1.0
+    funding_long_leverage_reduction_enabled: true
+    funding_long_leverage_reduction: 0.6
 - name: support_resistance_eth
   enabled: true
   symbols:
@@ -133,6 +142,15 @@ strategies:
     require_pullback_retest: false
     # ---- 强趋势逆势过滤 ----
     strict_bias_mode: true
+    # ---- Funding Rate 过滤 ----
+    funding_filter_enabled: true
+    funding_long_penalty_threshold: 0.008
+    funding_long_hard_block_threshold: 0.009
+    funding_short_block_threshold: -0.008
+    funding_short_hard_block_threshold: -0.015
+    funding_long_quality_penalty: -1.0
+    funding_long_leverage_reduction_enabled: true
+    funding_long_leverage_reduction: 0.6
 - name: support_resistance_sol
   enabled: true
   symbols:
@@ -213,6 +231,15 @@ strategies:
     strict_bias_mode: true
     # ---- 趋势期追仓加仓 ----
     trend_addition_allow_chase: true
+    # ---- Funding Rate 过滤（SOL 波动大，阈值略松，降杠杆轻） ----
+    funding_filter_enabled: true
+    funding_long_penalty_threshold: 0.012
+    funding_long_hard_block_threshold: 0.018
+    funding_short_block_threshold: -0.022
+    funding_short_hard_block_threshold: -0.070
+    funding_long_quality_penalty: -1.0
+    funding_long_leverage_reduction_enabled: true
+    funding_long_leverage_reduction: 0.7
 - name: support_resistance_paxg
   enabled: false
   symbols:
@@ -264,3 +291,12 @@ strategies:
     require_rejection_candle: false
     require_pullback_retest: false
     pullback_lookback: 10
+    # ---- Funding Rate 过滤（PAXG 低波动，默认关闭） ----
+    funding_filter_enabled: false
+    funding_long_penalty_threshold: 0.08
+    funding_long_hard_block_threshold: 0.15
+    funding_short_block_threshold: -0.08
+    funding_short_hard_block_threshold: -0.15
+    funding_long_quality_penalty: -1.0
+    funding_long_leverage_reduction_enabled: false
+    funding_long_leverage_reduction: 0.7

@@ -18,7 +18,8 @@ class BaseStrategy(ABC):
 
     @abstractmethod
     def on_bar(self, symbol: str, timeframe: str, klines: list[dict],
-               positions: list, parent_klines: list[dict] | None = None) -> list[Signal]:
+               positions: list, parent_klines: list[dict] | None = None,
+               funding_rate: float | None = None) -> list[Signal]:
         """每收到一根新 K 线时调用。
 
         参数:
@@ -27,6 +28,7 @@ class BaseStrategy(ABC):
             klines: OHLCV 数据列表（最新一根在最前）
             positions: 当前持仓列表
             parent_klines: 上级周期 K 线数据（用于多周期趋势确认，可选）
+            funding_rate: 当前资金费率（%），如 0.05 表示 +0.05%
 
         返回:
             Signal 对象列表（无动作为空列表）

@@ -190,3 +190,46 @@ class BinanceAdapter(ExchangeAdapter):
         except Exception as e:
             logger.error("获取持仓失败: %s", e)
             return []
+
+    async def fetch_funding_rate(self, symbol: str) -> dict | None:
+        """获取当前资金费率（Funding Rate）。
+
+        返回 dict: {"fundingRate": float, "fundingTime": int, ...}
+        或 None（API 失败时）。
+
+        注意：Binance funding rate 每 8 小时结算一次（00:00/08:00/16:00 UTC），
+        但当前预测值每 10 秒更新，可通过此接口获取实时值。
+        """
+        try:
+            result = await self._run_sync(self.exchange.fetch_funding_rate, symbol)
+            self._reconnect_attempts = 0
+            return result
+        except Exception as e:
+            logger.warning("获取 funding rate 失败 %s: %s", symbol, e)
+            return None
+
+    async def fetch_funding_rate_history(
+        self, symbol: str, since: int | None = None, limit: int = 100,
+    ) -> list[dict]:
+        """获取历史资金费率（用于回测）。
+
+        参数:
+            symbol: 交易对
+            since: 起始时间戳（毫秒）
+            limit: 最大返回条数
+
+        返回:
+            list[dict]，每个元素含 fundingRate, fundingTime 等字段
+        """
+        try:
+            kwargs: dict = {"limit": limit}
+            if since is not None:
+                kwargs["since"] = since
+            result = await self._run_sync(
+                self.exchange.fetch_funding_rate_history, symbol, **kwargs
+            )
+            self._reconnect_attempts = 0
+            return result if isinstance(result, list) else []
+        except Exception as e:
+            logger.warning("获取 funding rate 历史失败 %s: %s", symbol, e)
+            return []

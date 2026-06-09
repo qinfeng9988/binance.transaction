@@ -10,6 +10,8 @@
 
 import argparse
 import asyncio
+import bisect
+import json
 import logging
 import sys
 from datetime import datetime, timezone
@@ -26,6 +28,46 @@ logger = logging.getLogger(__name__)
 
 # 合约手续费率（Binance U 本位合约 Maker/Taker 约 0.04%）
 FEE_RATE = 0.0004
+
+FUNDING_DATA_DIR = Path(__file__).parent.parent / "quant_trader" / "data" / "funding_rates"
+
+
+def _load_funding_rates(symbol: str) -> list[dict]:
+    """从本地 JSON 缓存读取 funding rate 历史。
+
+    返回按 timestamp_ms 升序排列的记录列表，每条记录含 rate_pct 和 timestamp_ms。
+    缓存不存在时返回空列表。
+    """
+    filename = symbol.replace("/", "_").replace(":", "_") + ".json"
+    path = FUNDING_DATA_DIR / filename
+    if not path.exists():
+        logger.warning("Funding rate 缓存不存在: %s, 回测将不启用 FR 过滤", path)
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        records = data.get("records", [])
+        records.sort(key=lambda r: r["timestamp_ms"])
+        logger.info("已加载 %s funding rate 缓存: %d 条", symbol, len(records))
+        return records
+    except Exception as e:
+        logger.warning("加载 funding rate 缓存失败 %s: %s", path, e)
+        return []
+
+
+def _match_funding_rate(timestamp_ms: int, records: list[dict]) -> float | None:
+    """按时间戳匹配最近的 funding rate。
+
+    使用 bisect 查找不超过 timestamp_ms 的最新记录。
+    无匹配记录时返回 None。
+    """
+    if not records:
+        return None
+    times = [r["timestamp_ms"] for r in records]
+    idx = bisect.bisect_right(times, timestamp_ms) - 1
+    if idx < 0:
+        return None
+    return records[idx]["rate_pct"]
 
 
 class BacktestEngine:
@@ -523,6 +565,12 @@ async def run_backtest(symbol: str, timeframe: str, days: int, strategy_name: st
     else:
         confirm_aligned = [None] * len(klines_chrono)
 
+    # ---- 加载 Funding Rate 缓存 ----
+    funding_records = _load_funding_rates(symbol)
+    if not funding_records:
+        logger.warning("Funding rate 数据缺失，回测将跳过 FR 过滤（如需要请运行: python scripts/fetch_funding_history.py --symbol %s --days %d)",
+                       symbol, days)
+
     # ---- 回测循环 ----
     engine = BacktestEngine()
     window_size = 150
@@ -560,10 +608,15 @@ async def run_backtest(symbol: str, timeframe: str, days: int, strategy_name: st
         # 6. 获取对应的共振确认周期窗口
         confirm_window = confirm_aligned[i] if i < len(confirm_aligned) else None
 
-        # 7. 调用策略生成信号（传入 parent_klines、grandparent_klines 和 confirm_klines）
+        # 7. 匹配当前 K 线时间对应的 funding rate
+        funding_rate = None
+        if funding_records:
+            funding_rate = _match_funding_rate(ts_epoch * 1000, funding_records)
+
+        # 8. 调用策略生成信号（传入 parent_klines、grandparent_klines、confirm_klines 和 funding_rate）
         signals = strategy.on_bar(symbol, timeframe, window, engine.positions.values(),
                                   parent_klines=parent_window, grandparent_klines=grandparent_window,
-                                  confirm_klines=confirm_window)
+                                  confirm_klines=confirm_window, funding_rate=funding_rate)
 
         # 7. 执行信号（冷却期去重）
         for sig in signals:
@@ -642,6 +695,8 @@ async def run_backtest(symbol: str, timeframe: str, days: int, strategy_name: st
         print(f"  Volume filter rejected:       {stats['volume']:>8} ({stats['volume']/checked*100:.1f}%)")
         print(f"  Rejection candle rejected:    {stats['rejection']:>8} ({stats['rejection']/checked*100:.1f}%)")
         print(f"  Pullback filter rejected:     {stats['pullback']:>8} ({stats['pullback']/checked*100:.1f}%)")
+        print(f"  FR hard block rejected:       {stats.get('fr_hard_block', 0):>8} ({stats.get('fr_hard_block', 0)/checked*100:.1f}%)")
+        print(f"  FR penalty applied:           {stats.get('fr_penalty', 0):>8} ({stats.get('fr_penalty', 0)/checked*100:.1f}%)")
         print(f"  Add position rejected:        {stats['add']:>8} ({stats['add']/checked*100:.1f}%)")
         print(f"  Add limit rejected:           {stats.get('add_limit', 0):>8} ({stats.get('add_limit', 0)/checked*100:.1f}%)")
         print(f"  Add quality rejected:         {stats.get('add_quality', 0):>8} ({stats.get('add_quality', 0)/checked*100:.1f}%)")

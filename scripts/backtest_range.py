@@ -7,6 +7,8 @@
 
 import argparse
 import asyncio
+import bisect
+import json
 import logging
 import sys
 from datetime import datetime, timezone, timedelta
@@ -18,6 +20,47 @@ from quant_trader.core.config_loader import ConfigLoader
 from quant_trader.core.data_store import DataStore
 from quant_trader.main import PARENT_TIMEFRAME
 from quant_trader.strategies.s_r_levels import SupportResistanceStrategy
+
+FUNDING_DATA_DIR = Path(__file__).parent.parent / "quant_trader" / "data" / "funding_rates"
+
+
+def _load_funding_rates(symbol: str) -> list[dict]:
+    """从本地 JSON 缓存读取 funding rate 历史。
+
+    返回按 timestamp_ms 升序排列的记录列表，每条记录含 rate_pct 和 timestamp_ms。
+    缓存不存在时返回空列表。
+    """
+    filename = symbol.replace("/", "_").replace(":", "_") + ".json"
+    path = FUNDING_DATA_DIR / filename
+    if not path.exists():
+        logger.warning("Funding rate 缓存不存在: %s, 回测将不启用 FR 过滤", path)
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        records = data.get("records", [])
+        records.sort(key=lambda r: r["timestamp_ms"])
+        logger.info("已加载 %s funding rate 缓存: %d 条", symbol, len(records))
+        return records
+    except Exception as e:
+        logger.warning("加载 funding rate 缓存失败 %s: %s", path, e)
+        return []
+
+
+def _match_funding_rate(timestamp_ms: int, records: list[dict]) -> float | None:
+    """按时间戳匹配最近的 funding rate。
+
+    使用 bisect 查找不超过 timestamp_ms 的最新记录。
+    无匹配记录时返回 None。
+    """
+    if not records:
+        return None
+    times = [r["timestamp_ms"] for r in records]
+    idx = bisect.bisect_right(times, timestamp_ms) - 1
+    if idx < 0:
+        return None
+    return records[idx]["rate_pct"]
+
 
 logger = logging.getLogger(__name__)
 FEE_RATE = 0.0004
@@ -138,7 +181,7 @@ class BacktestEngine:
 
         existing = self.positions.get(symbol)
         if existing and existing["side"] != signal_type:
-            self._close_position(symbol, price, "reverse_signal")
+            self._close_position(symbol, price, "reverse_signal", {"timestamp": timestamp})
             existing = None
         position_value = self.balance * 0.1
         qty = position_value / price
@@ -342,6 +385,9 @@ def run_backtest(symbol: str, timeframe: str, start: datetime, end: datetime, pa
     parent_windows = _align_parent_klines(klines, parent_klines)
     grandparent_windows = _align_parent_klines(klines, grandparent_klines)
 
+    # 加载 funding rate 缓存
+    funding_records = _load_funding_rates(symbol)
+
     cooldown_seconds = 220
     last_signal_time: dict[str, float] = {}
     window_size = 150
@@ -354,10 +400,14 @@ def run_backtest(symbol: str, timeframe: str, start: datetime, end: datetime, pa
         window = list(reversed(klines[i - window_size + 1:i + 1]))
         parent_window = parent_windows[i] if i < len(parent_windows) else None
         grandparent_window = grandparent_windows[i] if i < len(grandparent_windows) else None
-        signals = strategy.on_bar(symbol, timeframe, window, engine.positions.values(), parent_klines=parent_window, grandparent_klines=grandparent_window)
+        ts_epoch = kline["timestamp"].timestamp()
+        # 匹配当前 K 线时间对应的 funding rate
+        funding_rate = None
+        if funding_records:
+            funding_rate = _match_funding_rate(int(ts_epoch * 1000), funding_records)
+        signals = strategy.on_bar(symbol, timeframe, window, engine.positions.values(), parent_klines=parent_window, grandparent_klines=grandparent_window, funding_rate=funding_rate)
         price_map = {symbol: kline["close"]}
         engine._record_equity(kline["timestamp"], price_map)
-        ts_epoch = kline["timestamp"].timestamp()
         for sig in signals:
             if sig.symbol != symbol:
                 continue
@@ -388,6 +438,7 @@ def run_backtest(symbol: str, timeframe: str, start: datetime, end: datetime, pa
         for sym in list(engine.positions.keys()):
             engine._close_position(sym, klines[-1]["close"], "end_of_data", klines[-1])
 
+    engine.strategy = strategy
     return engine
 
 
@@ -433,6 +484,36 @@ def main():
     print(f"平均亏损:           {summary['avg_loss']:.2f} USDT")
     print(f"profit factor:      {summary['profit_factor']:.2f}")
     print("=" * 60)
+
+    # ---- 过滤统计汇总 ----
+    if hasattr(engine, "strategy"):
+        filter_summary = engine.strategy.get_filter_summary()
+        print("\n=== FILTER SUMMARY ===")
+        for direction, stats in filter_summary.items():
+            checked = stats["checked"]
+            passed = stats["passed"]
+            rejected = checked - passed
+            if checked == 0:
+                continue
+            print(f"\n{direction.upper()} direction:")
+            print(f"  Total checked S/R levels:     {checked:>8}")
+            print(f"  Total signals passed:         {passed:>8} ({passed/checked*100:.1f}%)")
+            print(f"  Distance filter rejected:     {stats['distance']:>8} ({stats['distance']/checked*100:.1f}%)")
+            print(f"  ADX filter rejected:          {stats['adx']:>8} ({stats['adx']/checked*100:.1f}%)")
+            print(f"  DI direction rejected:        {stats['di']:>8} ({stats['di']/checked*100:.1f}%)")
+            print(f"  Quality filter rejected:      {stats['quality']:>8} ({stats['quality']/checked*100:.1f}%)")
+            print(f"  EMA filter rejected:          {stats['ema']:>8} ({stats['ema']/checked*100:.1f}%)")
+            print(f"  RSI filter rejected:          {stats['rsi']:>8} ({stats['rsi']/checked*100:.1f}%)")
+            print(f"  Volume filter rejected:       {stats['volume']:>8} ({stats['volume']/checked*100:.1f}%)")
+            print(f"  Rejection candle rejected:    {stats['rejection']:>8} ({stats['rejection']/checked*100:.1f}%)")
+            print(f"  Pullback filter rejected:     {stats['pullback']:>8} ({stats['pullback']/checked*100:.1f}%)")
+            print(f"  FR hard block rejected:       {stats.get('fr_hard_block', 0):>8} ({stats.get('fr_hard_block', 0)/checked*100:.1f}%)")
+            print(f"  FR penalty applied:           {stats.get('fr_penalty', 0):>8} ({stats.get('fr_penalty', 0)/checked*100:.1f}%)")
+            print(f"  Add position rejected:        {stats['add']:>8} ({stats['add']/checked*100:.1f}%)")
+            print(f"  Add limit rejected:           {stats.get('add_limit', 0):>8} ({stats.get('add_limit', 0)/checked*100:.1f}%)")
+            print(f"  Add quality rejected:         {stats.get('add_quality', 0):>8} ({stats.get('add_quality', 0)/checked*100:.1f}%)")
+            print(f"  Overall rejection rate:       {rejected:>8} ({rejected/checked*100:.1f}%)")
+        print()
 
     # 按月分析
     print("\n按月盈亏分布:")

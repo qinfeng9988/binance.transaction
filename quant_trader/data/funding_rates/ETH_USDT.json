@@ -1,0 +1,4387 @@
+{
+  "symbol": "ETH/USDT",
+  "updated_at": "2026-06-09T08:20:34.295694+00:00",
+  "count": 1095,
+  "records": [
+    {
+      "rate_pct": 0.0086,
+      "timestamp_ms": 1749484800001
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1749513600000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1749542400001
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1749571200003
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1749600000000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1749628800000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1749657600010
+    },
+    {
+      "rate_pct": 0.006,
+      "timestamp_ms": 1749686400002
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1749715200003
+    },
+    {
+      "rate_pct": 0.0053,
+      "timestamp_ms": 1749744000001
+    },
+    {
+      "rate_pct": -0.0014,
+      "timestamp_ms": 1749772800000
+    },
+    {
+      "rate_pct": -0.0011,
+      "timestamp_ms": 1749801600001
+    },
+    {
+      "rate_pct": 0.0021,
+      "timestamp_ms": 1749830400004
+    },
+    {
+      "rate_pct": 0.0046,
+      "timestamp_ms": 1749859200000
+    },
+    {
+      "rate_pct": 0.002,
+      "timestamp_ms": 1749888000000
+    },
+    {
+      "rate_pct": 0.0004,
+      "timestamp_ms": 1749916800000
+    },
+    {
+      "rate_pct": 0.0018,
+      "timestamp_ms": 1749945600005
+    },
+    {
+      "rate_pct": 0.0085,
+      "timestamp_ms": 1749974400009
+    },
+    {
+      "rate_pct": 0.0071,
+      "timestamp_ms": 1750003200000
+    },
+    {
+      "rate_pct": 0.0046,
+      "timestamp_ms": 1750032000000
+    },
+    {
+      "rate_pct": 0.0091,
+      "timestamp_ms": 1750060800000
+    },
+    {
+      "rate_pct": 0.004,
+      "timestamp_ms": 1750089600003
+    },
+    {
+      "rate_pct": -0.0009,
+      "timestamp_ms": 1750118400000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1750147200006
+    },
+    {
+      "rate_pct": 0.0056,
+      "timestamp_ms": 1750176000001
+    },
+    {
+      "rate_pct": 0.0058,
+      "timestamp_ms": 1750204800001
+    },
+    {
+      "rate_pct": 0.0068,
+      "timestamp_ms": 1750233600001
+    },
+    {
+      "rate_pct": 0.0023,
+      "timestamp_ms": 1750262400001
+    },
+    {
+      "rate_pct": 0.0054,
+      "timestamp_ms": 1750291200005
+    },
+    {
+      "rate_pct": 0.0048,
+      "timestamp_ms": 1750320000003
+    },
+    {
+      "rate_pct": 0.0049,
+      "timestamp_ms": 1750348800000
+    },
+    {
+      "rate_pct": 0.0081,
+      "timestamp_ms": 1750377600000
+    },
+    {
+      "rate_pct": 0.009,
+      "timestamp_ms": 1750406400002
+    },
+    {
+      "rate_pct": 0.0026,
+      "timestamp_ms": 1750435200001
+    },
+    {
+      "rate_pct": -0.005,
+      "timestamp_ms": 1750464000002
+    },
+    {
+      "rate_pct": -0.0014,
+      "timestamp_ms": 1750492800005
+    },
+    {
+      "rate_pct": 0.005,
+      "timestamp_ms": 1750521600000
+    },
+    {
+      "rate_pct": -0.0008,
+      "timestamp_ms": 1750550400005
+    },
+    {
+      "rate_pct": -0.0018,
+      "timestamp_ms": 1750579200000
+    },
+    {
+      "rate_pct": 0.0047,
+      "timestamp_ms": 1750608000003
+    },
+    {
+      "rate_pct": 0.0023,
+      "timestamp_ms": 1750636800000
+    },
+    {
+      "rate_pct": -0.0014,
+      "timestamp_ms": 1750665600004
+    },
+    {
+      "rate_pct": 0.0001,
+      "timestamp_ms": 1750694400013
+    },
+    {
+      "rate_pct": 0.0021,
+      "timestamp_ms": 1750723200003
+    },
+    {
+      "rate_pct": 0.0012,
+      "timestamp_ms": 1750752000000
+    },
+    {
+      "rate_pct": 0.0004,
+      "timestamp_ms": 1750780800000
+    },
+    {
+      "rate_pct": -0.0008,
+      "timestamp_ms": 1750809600005
+    },
+    {
+      "rate_pct": -0.0,
+      "timestamp_ms": 1750838400000
+    },
+    {
+      "rate_pct": 0.0012,
+      "timestamp_ms": 1750867200005
+    },
+    {
+      "rate_pct": 0.0028,
+      "timestamp_ms": 1750896000000
+    },
+    {
+      "rate_pct": 0.0081,
+      "timestamp_ms": 1750924800006
+    },
+    {
+      "rate_pct": 0.0009,
+      "timestamp_ms": 1750953600007
+    },
+    {
+      "rate_pct": 0.0004,
+      "timestamp_ms": 1750982400000
+    },
+    {
+      "rate_pct": 0.0005,
+      "timestamp_ms": 1751011200000
+    },
+    {
+      "rate_pct": 0.0055,
+      "timestamp_ms": 1751040000009
+    },
+    {
+      "rate_pct": 0.0084,
+      "timestamp_ms": 1751068800001
+    },
+    {
+      "rate_pct": 0.0007,
+      "timestamp_ms": 1751097600002
+    },
+    {
+      "rate_pct": 0.004,
+      "timestamp_ms": 1751126400000
+    },
+    {
+      "rate_pct": 0.0062,
+      "timestamp_ms": 1751155200004
+    },
+    {
+      "rate_pct": 0.0088,
+      "timestamp_ms": 1751184000001
+    },
+    {
+      "rate_pct": 0.0,
+      "timestamp_ms": 1751212800001
+    },
+    {
+      "rate_pct": 0.0051,
+      "timestamp_ms": 1751241600000
+    },
+    {
+      "rate_pct": 0.0091,
+      "timestamp_ms": 1751270400005
+    },
+    {
+      "rate_pct": 0.0004,
+      "timestamp_ms": 1751299200002
+    },
+    {
+      "rate_pct": 0.0082,
+      "timestamp_ms": 1751328000007
+    },
+    {
+      "rate_pct": 0.0015,
+      "timestamp_ms": 1751356800002
+    },
+    {
+      "rate_pct": -0.0014,
+      "timestamp_ms": 1751385600000
+    },
+    {
+      "rate_pct": 0.002,
+      "timestamp_ms": 1751414400001
+    },
+    {
+      "rate_pct": 0.0049,
+      "timestamp_ms": 1751443200000
+    },
+    {
+      "rate_pct": 0.0052,
+      "timestamp_ms": 1751472000003
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1751500800006
+    },
+    {
+      "rate_pct": 0.0098,
+      "timestamp_ms": 1751529600003
+    },
+    {
+      "rate_pct": 0.0044,
+      "timestamp_ms": 1751558400003
+    },
+    {
+      "rate_pct": 0.0014,
+      "timestamp_ms": 1751587200005
+    },
+    {
+      "rate_pct": 0.0066,
+      "timestamp_ms": 1751616000003
+    },
+    {
+      "rate_pct": 0.0027,
+      "timestamp_ms": 1751644800001
+    },
+    {
+      "rate_pct": 0.0014,
+      "timestamp_ms": 1751673600004
+    },
+    {
+      "rate_pct": 0.004,
+      "timestamp_ms": 1751702400009
+    },
+    {
+      "rate_pct": 0.0055,
+      "timestamp_ms": 1751731200006
+    },
+    {
+      "rate_pct": 0.0039,
+      "timestamp_ms": 1751760000001
+    },
+    {
+      "rate_pct": 0.0066,
+      "timestamp_ms": 1751788800002
+    },
+    {
+      "rate_pct": 0.0081,
+      "timestamp_ms": 1751817600004
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1751846400000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1751875200007
+    },
+    {
+      "rate_pct": -0.003,
+      "timestamp_ms": 1751904000000
+    },
+    {
+      "rate_pct": 0.0076,
+      "timestamp_ms": 1751932800010
+    },
+    {
+      "rate_pct": 0.0028,
+      "timestamp_ms": 1751961600003
+    },
+    {
+      "rate_pct": 0.0065,
+      "timestamp_ms": 1751990400000
+    },
+    {
+      "rate_pct": 0.0049,
+      "timestamp_ms": 1752019200002
+    },
+    {
+      "rate_pct": 0.0068,
+      "timestamp_ms": 1752048000006
+    },
+    {
+      "rate_pct": 0.0063,
+      "timestamp_ms": 1752076800001
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1752105600003
+    },
+    {
+      "rate_pct": 0.0028,
+      "timestamp_ms": 1752134400000
+    },
+    {
+      "rate_pct": 0.0032,
+      "timestamp_ms": 1752163200004
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1752192000004
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1752220800007
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1752249600001
+    },
+    {
+      "rate_pct": 0.008,
+      "timestamp_ms": 1752278400000
+    },
+    {
+      "rate_pct": 0.0077,
+      "timestamp_ms": 1752307200001
+    },
+    {
+      "rate_pct": 0.0061,
+      "timestamp_ms": 1752336000002
+    },
+    {
+      "rate_pct": 0.0042,
+      "timestamp_ms": 1752364800006
+    },
+    {
+      "rate_pct": 0.0044,
+      "timestamp_ms": 1752393600001
+    },
+    {
+      "rate_pct": 0.0072,
+      "timestamp_ms": 1752422400003
+    },
+    {
+      "rate_pct": 0.001,
+      "timestamp_ms": 1752451200000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1752480000000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1752508800000
+    },
+    {
+      "rate_pct": 0.0061,
+      "timestamp_ms": 1752537600002
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1752566400000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1752595200000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1752624000000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1752652800000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1752681600008
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1752710400003
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1752739200000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1752768000000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1752796800004
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1752825600000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1752854400000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1752883200009
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1752912000000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1752940800002
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1752969600000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1752998400000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1753027200000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1753056000001
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1753084800000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1753113600001
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1753142400000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1753171200010
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1753200000007
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1753228800000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1753257600004
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1753286400002
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1753315200000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1753344000001
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1753372800000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1753401600000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1753430400000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1753459200000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1753488000001
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1753516800005
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1753545600001
+    },
+    {
+      "rate_pct": 0.0093,
+      "timestamp_ms": 1753574400001
+    },
+    {
+      "rate_pct": 0.0089,
+      "timestamp_ms": 1753603200000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1753632000008
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1753660800005
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1753689600000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1753718400000
+    },
+    {
+      "rate_pct": 0.0045,
+      "timestamp_ms": 1753747200001
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1753776000000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1753804800000
+    },
+    {
+      "rate_pct": 0.0025,
+      "timestamp_ms": 1753833600011
+    },
+    {
+      "rate_pct": 0.0051,
+      "timestamp_ms": 1753862400000
+    },
+    {
+      "rate_pct": 0.0015,
+      "timestamp_ms": 1753891200008
+    },
+    {
+      "rate_pct": 0.0052,
+      "timestamp_ms": 1753920000000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1753948800009
+    },
+    {
+      "rate_pct": -0.0012,
+      "timestamp_ms": 1753977600000
+    },
+    {
+      "rate_pct": -0.0037,
+      "timestamp_ms": 1754006400001
+    },
+    {
+      "rate_pct": 0.0011,
+      "timestamp_ms": 1754035200003
+    },
+    {
+      "rate_pct": 0.0049,
+      "timestamp_ms": 1754064000000
+    },
+    {
+      "rate_pct": 0.0058,
+      "timestamp_ms": 1754092800004
+    },
+    {
+      "rate_pct": 0.0007,
+      "timestamp_ms": 1754121600000
+    },
+    {
+      "rate_pct": 0.008,
+      "timestamp_ms": 1754150400000
+    },
+    {
+      "rate_pct": 0.0067,
+      "timestamp_ms": 1754179200000
+    },
+    {
+      "rate_pct": 0.0058,
+      "timestamp_ms": 1754208000000
+    },
+    {
+      "rate_pct": 0.0038,
+      "timestamp_ms": 1754236800003
+    },
+    {
+      "rate_pct": 0.0017,
+      "timestamp_ms": 1754265600004
+    },
+    {
+      "rate_pct": 0.0011,
+      "timestamp_ms": 1754294400000
+    },
+    {
+      "rate_pct": 0.0036,
+      "timestamp_ms": 1754323200002
+    },
+    {
+      "rate_pct": 0.0001,
+      "timestamp_ms": 1754352000000
+    },
+    {
+      "rate_pct": 0.0031,
+      "timestamp_ms": 1754380800000
+    },
+    {
+      "rate_pct": 0.0014,
+      "timestamp_ms": 1754409600000
+    },
+    {
+      "rate_pct": 0.0024,
+      "timestamp_ms": 1754438400005
+    },
+    {
+      "rate_pct": 0.0082,
+      "timestamp_ms": 1754467200000
+    },
+    {
+      "rate_pct": 0.0062,
+      "timestamp_ms": 1754496000000
+    },
+    {
+      "rate_pct": 0.0062,
+      "timestamp_ms": 1754524800003
+    },
+    {
+      "rate_pct": 0.0043,
+      "timestamp_ms": 1754553600002
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1754582400002
+    },
+    {
+      "rate_pct": 0.0043,
+      "timestamp_ms": 1754611200002
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1754640000004
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1754668800000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1754697600005
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1754726400000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1754755200007
+    },
+    {
+      "rate_pct": 0.0099,
+      "timestamp_ms": 1754784000003
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1754812800005
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1754841600002
+    },
+    {
+      "rate_pct": 0.0089,
+      "timestamp_ms": 1754870400000
+    },
+    {
+      "rate_pct": 0.0094,
+      "timestamp_ms": 1754899200000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1754928000000
+    },
+    {
+      "rate_pct": 0.0037,
+      "timestamp_ms": 1754956800000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1754985600001
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1755014400005
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1755043200000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1755072000002
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1755100800006
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1755129600002
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1755158400003
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1755187200000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1755216000000
+    },
+    {
+      "rate_pct": 0.0098,
+      "timestamp_ms": 1755244800000
+    },
+    {
+      "rate_pct": 0.0065,
+      "timestamp_ms": 1755273600000
+    },
+    {
+      "rate_pct": 0.006,
+      "timestamp_ms": 1755302400004
+    },
+    {
+      "rate_pct": 0.009,
+      "timestamp_ms": 1755331200000
+    },
+    {
+      "rate_pct": 0.002,
+      "timestamp_ms": 1755360000002
+    },
+    {
+      "rate_pct": 0.0047,
+      "timestamp_ms": 1755388800000
+    },
+    {
+      "rate_pct": -0.0007,
+      "timestamp_ms": 1755417600001
+    },
+    {
+      "rate_pct": 0.0053,
+      "timestamp_ms": 1755446400007
+    },
+    {
+      "rate_pct": 0.0006,
+      "timestamp_ms": 1755475200000
+    },
+    {
+      "rate_pct": 0.0092,
+      "timestamp_ms": 1755504000001
+    },
+    {
+      "rate_pct": 0.009,
+      "timestamp_ms": 1755532800002
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1755561600000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1755590400001
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1755619200000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1755648000000
+    },
+    {
+      "rate_pct": 0.0003,
+      "timestamp_ms": 1755676800000
+    },
+    {
+      "rate_pct": 0.0091,
+      "timestamp_ms": 1755705600000
+    },
+    {
+      "rate_pct": 0.0062,
+      "timestamp_ms": 1755734400006
+    },
+    {
+      "rate_pct": 0.0058,
+      "timestamp_ms": 1755763200000
+    },
+    {
+      "rate_pct": 0.0027,
+      "timestamp_ms": 1755792000003
+    },
+    {
+      "rate_pct": 0.0064,
+      "timestamp_ms": 1755820800010
+    },
+    {
+      "rate_pct": 0.0067,
+      "timestamp_ms": 1755849600007
+    },
+    {
+      "rate_pct": 0.006,
+      "timestamp_ms": 1755878400001
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1755907200004
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1755936000006
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1755964800000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1755993600001
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1756022400002
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1756051200001
+    },
+    {
+      "rate_pct": 0.0049,
+      "timestamp_ms": 1756080000000
+    },
+    {
+      "rate_pct": 0.0046,
+      "timestamp_ms": 1756108800002
+    },
+    {
+      "rate_pct": 0.0017,
+      "timestamp_ms": 1756137600002
+    },
+    {
+      "rate_pct": -0.0007,
+      "timestamp_ms": 1756166400000
+    },
+    {
+      "rate_pct": 0.0011,
+      "timestamp_ms": 1756195200000
+    },
+    {
+      "rate_pct": 0.001,
+      "timestamp_ms": 1756224000000
+    },
+    {
+      "rate_pct": -0.0008,
+      "timestamp_ms": 1756252800003
+    },
+    {
+      "rate_pct": 0.0019,
+      "timestamp_ms": 1756281600000
+    },
+    {
+      "rate_pct": 0.0042,
+      "timestamp_ms": 1756310400009
+    },
+    {
+      "rate_pct": 0.006,
+      "timestamp_ms": 1756339200000
+    },
+    {
+      "rate_pct": 0.0026,
+      "timestamp_ms": 1756368000005
+    },
+    {
+      "rate_pct": 0.0022,
+      "timestamp_ms": 1756396800004
+    },
+    {
+      "rate_pct": 0.0017,
+      "timestamp_ms": 1756425600000
+    },
+    {
+      "rate_pct": 0.005,
+      "timestamp_ms": 1756454400000
+    },
+    {
+      "rate_pct": 0.0015,
+      "timestamp_ms": 1756483200005
+    },
+    {
+      "rate_pct": 0.0042,
+      "timestamp_ms": 1756512000000
+    },
+    {
+      "rate_pct": -0.0011,
+      "timestamp_ms": 1756540800002
+    },
+    {
+      "rate_pct": 0.0041,
+      "timestamp_ms": 1756569600003
+    },
+    {
+      "rate_pct": -0.0014,
+      "timestamp_ms": 1756598400016
+    },
+    {
+      "rate_pct": 0.0055,
+      "timestamp_ms": 1756627200000
+    },
+    {
+      "rate_pct": -0.0012,
+      "timestamp_ms": 1756656000001
+    },
+    {
+      "rate_pct": -0.0021,
+      "timestamp_ms": 1756684800000
+    },
+    {
+      "rate_pct": -0.0013,
+      "timestamp_ms": 1756713600000
+    },
+    {
+      "rate_pct": 0.0001,
+      "timestamp_ms": 1756742400001
+    },
+    {
+      "rate_pct": 0.0004,
+      "timestamp_ms": 1756771200000
+    },
+    {
+      "rate_pct": 0.0055,
+      "timestamp_ms": 1756800000005
+    },
+    {
+      "rate_pct": 0.003,
+      "timestamp_ms": 1756828800007
+    },
+    {
+      "rate_pct": 0.0018,
+      "timestamp_ms": 1756857600006
+    },
+    {
+      "rate_pct": -0.0001,
+      "timestamp_ms": 1756886400002
+    },
+    {
+      "rate_pct": 0.0032,
+      "timestamp_ms": 1756915200002
+    },
+    {
+      "rate_pct": 0.0023,
+      "timestamp_ms": 1756944000002
+    },
+    {
+      "rate_pct": -0.002,
+      "timestamp_ms": 1756972800000
+    },
+    {
+      "rate_pct": -0.0025,
+      "timestamp_ms": 1757001600000
+    },
+    {
+      "rate_pct": -0.0055,
+      "timestamp_ms": 1757030400001
+    },
+    {
+      "rate_pct": -0.0035,
+      "timestamp_ms": 1757059200006
+    },
+    {
+      "rate_pct": 0.0029,
+      "timestamp_ms": 1757088000000
+    },
+    {
+      "rate_pct": -0.0021,
+      "timestamp_ms": 1757116800000
+    },
+    {
+      "rate_pct": 0.004,
+      "timestamp_ms": 1757145600005
+    },
+    {
+      "rate_pct": 0.0041,
+      "timestamp_ms": 1757174400000
+    },
+    {
+      "rate_pct": 0.0059,
+      "timestamp_ms": 1757203200000
+    },
+    {
+      "rate_pct": 0.0089,
+      "timestamp_ms": 1757232000000
+    },
+    {
+      "rate_pct": 0.0033,
+      "timestamp_ms": 1757260800000
+    },
+    {
+      "rate_pct": 0.0026,
+      "timestamp_ms": 1757289600007
+    },
+    {
+      "rate_pct": 0.0021,
+      "timestamp_ms": 1757318400000
+    },
+    {
+      "rate_pct": 0.0091,
+      "timestamp_ms": 1757347200000
+    },
+    {
+      "rate_pct": 0.0047,
+      "timestamp_ms": 1757376000000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1757404800000
+    },
+    {
+      "rate_pct": 0.0066,
+      "timestamp_ms": 1757433600000
+    },
+    {
+      "rate_pct": 0.0062,
+      "timestamp_ms": 1757462400000
+    },
+    {
+      "rate_pct": 0.0088,
+      "timestamp_ms": 1757491200002
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1757520000000
+    },
+    {
+      "rate_pct": 0.0013,
+      "timestamp_ms": 1757548800000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1757577600000
+    },
+    {
+      "rate_pct": 0.0085,
+      "timestamp_ms": 1757606400001
+    },
+    {
+      "rate_pct": 0.0049,
+      "timestamp_ms": 1757635200002
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1757664000001
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1757692800005
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1757721600005
+    },
+    {
+      "rate_pct": 0.0098,
+      "timestamp_ms": 1757750400002
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1757779200000
+    },
+    {
+      "rate_pct": 0.0004,
+      "timestamp_ms": 1757808000006
+    },
+    {
+      "rate_pct": 0.0083,
+      "timestamp_ms": 1757836800000
+    },
+    {
+      "rate_pct": 0.0056,
+      "timestamp_ms": 1757865600001
+    },
+    {
+      "rate_pct": 0.0074,
+      "timestamp_ms": 1757894400006
+    },
+    {
+      "rate_pct": 0.0066,
+      "timestamp_ms": 1757923200002
+    },
+    {
+      "rate_pct": 0.0036,
+      "timestamp_ms": 1757952000001
+    },
+    {
+      "rate_pct": 0.0045,
+      "timestamp_ms": 1757980800001
+    },
+    {
+      "rate_pct": 0.0045,
+      "timestamp_ms": 1758009600000
+    },
+    {
+      "rate_pct": 0.002,
+      "timestamp_ms": 1758038400000
+    },
+    {
+      "rate_pct": 0.0024,
+      "timestamp_ms": 1758067200001
+    },
+    {
+      "rate_pct": 0.0054,
+      "timestamp_ms": 1758096000000
+    },
+    {
+      "rate_pct": 0.0044,
+      "timestamp_ms": 1758124800003
+    },
+    {
+      "rate_pct": 0.0052,
+      "timestamp_ms": 1758153600006
+    },
+    {
+      "rate_pct": 0.0043,
+      "timestamp_ms": 1758182400002
+    },
+    {
+      "rate_pct": 0.002,
+      "timestamp_ms": 1758211200000
+    },
+    {
+      "rate_pct": 0.0057,
+      "timestamp_ms": 1758240000000
+    },
+    {
+      "rate_pct": -0.0009,
+      "timestamp_ms": 1758268800005
+    },
+    {
+      "rate_pct": -0.0043,
+      "timestamp_ms": 1758297600000
+    },
+    {
+      "rate_pct": -0.0044,
+      "timestamp_ms": 1758326400000
+    },
+    {
+      "rate_pct": -0.0006,
+      "timestamp_ms": 1758355200000
+    },
+    {
+      "rate_pct": 0.0042,
+      "timestamp_ms": 1758384000002
+    },
+    {
+      "rate_pct": -0.0024,
+      "timestamp_ms": 1758412800000
+    },
+    {
+      "rate_pct": 0.0048,
+      "timestamp_ms": 1758441600000
+    },
+    {
+      "rate_pct": 0.003,
+      "timestamp_ms": 1758470400000
+    },
+    {
+      "rate_pct": -0.0021,
+      "timestamp_ms": 1758499200005
+    },
+    {
+      "rate_pct": -0.0005,
+      "timestamp_ms": 1758528000003
+    },
+    {
+      "rate_pct": 0.0005,
+      "timestamp_ms": 1758556800000
+    },
+    {
+      "rate_pct": -0.0002,
+      "timestamp_ms": 1758585600000
+    },
+    {
+      "rate_pct": 0.0056,
+      "timestamp_ms": 1758614400001
+    },
+    {
+      "rate_pct": -0.0022,
+      "timestamp_ms": 1758643200000
+    },
+    {
+      "rate_pct": 0.001,
+      "timestamp_ms": 1758672000003
+    },
+    {
+      "rate_pct": 0.0007,
+      "timestamp_ms": 1758700800001
+    },
+    {
+      "rate_pct": -0.0036,
+      "timestamp_ms": 1758729600002
+    },
+    {
+      "rate_pct": -0.0086,
+      "timestamp_ms": 1758758400000
+    },
+    {
+      "rate_pct": -0.0081,
+      "timestamp_ms": 1758787200001
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1758816000000
+    },
+    {
+      "rate_pct": 0.009,
+      "timestamp_ms": 1758844800000
+    },
+    {
+      "rate_pct": 0.0032,
+      "timestamp_ms": 1758873600000
+    },
+    {
+      "rate_pct": 0.0048,
+      "timestamp_ms": 1758902400008
+    },
+    {
+      "rate_pct": -0.0016,
+      "timestamp_ms": 1758931200000
+    },
+    {
+      "rate_pct": 0.0044,
+      "timestamp_ms": 1758960000010
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1758988800003
+    },
+    {
+      "rate_pct": 0.008,
+      "timestamp_ms": 1759017600000
+    },
+    {
+      "rate_pct": 0.0042,
+      "timestamp_ms": 1759046400000
+    },
+    {
+      "rate_pct": 0.0082,
+      "timestamp_ms": 1759075200000
+    },
+    {
+      "rate_pct": 0.0035,
+      "timestamp_ms": 1759104000000
+    },
+    {
+      "rate_pct": 0.0038,
+      "timestamp_ms": 1759132800002
+    },
+    {
+      "rate_pct": -0.0035,
+      "timestamp_ms": 1759161600001
+    },
+    {
+      "rate_pct": 0.0009,
+      "timestamp_ms": 1759190400002
+    },
+    {
+      "rate_pct": -0.0013,
+      "timestamp_ms": 1759219200005
+    },
+    {
+      "rate_pct": 0.0005,
+      "timestamp_ms": 1759248000000
+    },
+    {
+      "rate_pct": -0.0016,
+      "timestamp_ms": 1759276800000
+    },
+    {
+      "rate_pct": 0.0026,
+      "timestamp_ms": 1759305600000
+    },
+    {
+      "rate_pct": -0.0007,
+      "timestamp_ms": 1759334400000
+    },
+    {
+      "rate_pct": 0.0015,
+      "timestamp_ms": 1759363200000
+    },
+    {
+      "rate_pct": 0.003,
+      "timestamp_ms": 1759392000013
+    },
+    {
+      "rate_pct": 0.0037,
+      "timestamp_ms": 1759420800000
+    },
+    {
+      "rate_pct": 0.0013,
+      "timestamp_ms": 1759449600006
+    },
+    {
+      "rate_pct": 0.0079,
+      "timestamp_ms": 1759478400006
+    },
+    {
+      "rate_pct": 0.0056,
+      "timestamp_ms": 1759507200000
+    },
+    {
+      "rate_pct": 0.0056,
+      "timestamp_ms": 1759536000001
+    },
+    {
+      "rate_pct": 0.0007,
+      "timestamp_ms": 1759564800000
+    },
+    {
+      "rate_pct": 0.0048,
+      "timestamp_ms": 1759593600000
+    },
+    {
+      "rate_pct": 0.0058,
+      "timestamp_ms": 1759622400000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1759651200003
+    },
+    {
+      "rate_pct": 0.0097,
+      "timestamp_ms": 1759680000009
+    },
+    {
+      "rate_pct": 0.0079,
+      "timestamp_ms": 1759708800004
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1759737600002
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1759766400004
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1759795200000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1759824000003
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1759852800000
+    },
+    {
+      "rate_pct": 0.0013,
+      "timestamp_ms": 1759881600000
+    },
+    {
+      "rate_pct": 0.006,
+      "timestamp_ms": 1759910400006
+    },
+    {
+      "rate_pct": 0.0013,
+      "timestamp_ms": 1759939200002
+    },
+    {
+      "rate_pct": 0.0036,
+      "timestamp_ms": 1759968000001
+    },
+    {
+      "rate_pct": -0.0002,
+      "timestamp_ms": 1759996800000
+    },
+    {
+      "rate_pct": 0.0058,
+      "timestamp_ms": 1760025600000
+    },
+    {
+      "rate_pct": 0.0026,
+      "timestamp_ms": 1760054400005
+    },
+    {
+      "rate_pct": 0.0025,
+      "timestamp_ms": 1760083200002
+    },
+    {
+      "rate_pct": -0.0051,
+      "timestamp_ms": 1760112000014
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1760140800000
+    },
+    {
+      "rate_pct": -0.0131,
+      "timestamp_ms": 1760169600003
+    },
+    {
+      "rate_pct": -0.0002,
+      "timestamp_ms": 1760198400000
+    },
+    {
+      "rate_pct": -0.007,
+      "timestamp_ms": 1760227200004
+    },
+    {
+      "rate_pct": 0.0008,
+      "timestamp_ms": 1760256000002
+    },
+    {
+      "rate_pct": -0.0046,
+      "timestamp_ms": 1760284800000
+    },
+    {
+      "rate_pct": -0.0026,
+      "timestamp_ms": 1760313600003
+    },
+    {
+      "rate_pct": 0.0053,
+      "timestamp_ms": 1760342400002
+    },
+    {
+      "rate_pct": 0.0052,
+      "timestamp_ms": 1760371200003
+    },
+    {
+      "rate_pct": 0.0056,
+      "timestamp_ms": 1760400000000
+    },
+    {
+      "rate_pct": 0.0004,
+      "timestamp_ms": 1760428800000
+    },
+    {
+      "rate_pct": 0.0027,
+      "timestamp_ms": 1760457600000
+    },
+    {
+      "rate_pct": 0.0014,
+      "timestamp_ms": 1760486400006
+    },
+    {
+      "rate_pct": 0.0043,
+      "timestamp_ms": 1760515200002
+    },
+    {
+      "rate_pct": 0.0025,
+      "timestamp_ms": 1760544000000
+    },
+    {
+      "rate_pct": -0.0005,
+      "timestamp_ms": 1760572800000
+    },
+    {
+      "rate_pct": 0.0008,
+      "timestamp_ms": 1760601600003
+    },
+    {
+      "rate_pct": 0.0006,
+      "timestamp_ms": 1760630400002
+    },
+    {
+      "rate_pct": 0.0034,
+      "timestamp_ms": 1760659200001
+    },
+    {
+      "rate_pct": 0.0056,
+      "timestamp_ms": 1760688000005
+    },
+    {
+      "rate_pct": 0.003,
+      "timestamp_ms": 1760716800003
+    },
+    {
+      "rate_pct": 0.0014,
+      "timestamp_ms": 1760745600000
+    },
+    {
+      "rate_pct": 0.0015,
+      "timestamp_ms": 1760774400002
+    },
+    {
+      "rate_pct": 0.0061,
+      "timestamp_ms": 1760803200001
+    },
+    {
+      "rate_pct": 0.0062,
+      "timestamp_ms": 1760832000001
+    },
+    {
+      "rate_pct": 0.0021,
+      "timestamp_ms": 1760860800001
+    },
+    {
+      "rate_pct": 0.0035,
+      "timestamp_ms": 1760889600001
+    },
+    {
+      "rate_pct": 0.0025,
+      "timestamp_ms": 1760918400004
+    },
+    {
+      "rate_pct": 0.0054,
+      "timestamp_ms": 1760947200001
+    },
+    {
+      "rate_pct": 0.006,
+      "timestamp_ms": 1760976000000
+    },
+    {
+      "rate_pct": 0.0035,
+      "timestamp_ms": 1761004800009
+    },
+    {
+      "rate_pct": 0.0,
+      "timestamp_ms": 1761033600000
+    },
+    {
+      "rate_pct": 0.0077,
+      "timestamp_ms": 1761062400000
+    },
+    {
+      "rate_pct": -0.0025,
+      "timestamp_ms": 1761091200004
+    },
+    {
+      "rate_pct": 0.0022,
+      "timestamp_ms": 1761120000000
+    },
+    {
+      "rate_pct": 0.0024,
+      "timestamp_ms": 1761148800000
+    },
+    {
+      "rate_pct": 0.0005,
+      "timestamp_ms": 1761177600000
+    },
+    {
+      "rate_pct": 0.0042,
+      "timestamp_ms": 1761206400001
+    },
+    {
+      "rate_pct": 0.0052,
+      "timestamp_ms": 1761235200004
+    },
+    {
+      "rate_pct": 0.0009,
+      "timestamp_ms": 1761264000000
+    },
+    {
+      "rate_pct": 0.0094,
+      "timestamp_ms": 1761292800000
+    },
+    {
+      "rate_pct": 0.0031,
+      "timestamp_ms": 1761321600009
+    },
+    {
+      "rate_pct": 0.0013,
+      "timestamp_ms": 1761350400000
+    },
+    {
+      "rate_pct": 0.0015,
+      "timestamp_ms": 1761379200001
+    },
+    {
+      "rate_pct": 0.0064,
+      "timestamp_ms": 1761408000001
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1761436800001
+    },
+    {
+      "rate_pct": 0.0021,
+      "timestamp_ms": 1761465600001
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1761494400000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1761523200000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1761552000005
+    },
+    {
+      "rate_pct": 0.0078,
+      "timestamp_ms": 1761580800000
+    },
+    {
+      "rate_pct": 0.0039,
+      "timestamp_ms": 1761609600000
+    },
+    {
+      "rate_pct": 0.0046,
+      "timestamp_ms": 1761638400000
+    },
+    {
+      "rate_pct": 0.0018,
+      "timestamp_ms": 1761667200004
+    },
+    {
+      "rate_pct": -0.0052,
+      "timestamp_ms": 1761696000004
+    },
+    {
+      "rate_pct": -0.001,
+      "timestamp_ms": 1761724800005
+    },
+    {
+      "rate_pct": 0.0039,
+      "timestamp_ms": 1761753600000
+    },
+    {
+      "rate_pct": -0.0034,
+      "timestamp_ms": 1761782400004
+    },
+    {
+      "rate_pct": -0.0022,
+      "timestamp_ms": 1761811200008
+    },
+    {
+      "rate_pct": -0.0064,
+      "timestamp_ms": 1761840000001
+    },
+    {
+      "rate_pct": 0.0032,
+      "timestamp_ms": 1761868800000
+    },
+    {
+      "rate_pct": 0.0078,
+      "timestamp_ms": 1761897600008
+    },
+    {
+      "rate_pct": -0.0013,
+      "timestamp_ms": 1761926400007
+    },
+    {
+      "rate_pct": 0.006,
+      "timestamp_ms": 1761955200001
+    },
+    {
+      "rate_pct": 0.0077,
+      "timestamp_ms": 1761984000000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1762012800000
+    },
+    {
+      "rate_pct": 0.0067,
+      "timestamp_ms": 1762041600007
+    },
+    {
+      "rate_pct": 0.0093,
+      "timestamp_ms": 1762070400000
+    },
+    {
+      "rate_pct": 0.0033,
+      "timestamp_ms": 1762099200001
+    },
+    {
+      "rate_pct": 0.0089,
+      "timestamp_ms": 1762128000000
+    },
+    {
+      "rate_pct": 0.0024,
+      "timestamp_ms": 1762156800010
+    },
+    {
+      "rate_pct": 0.0005,
+      "timestamp_ms": 1762185600000
+    },
+    {
+      "rate_pct": 0.0079,
+      "timestamp_ms": 1762214400002
+    },
+    {
+      "rate_pct": 0.009,
+      "timestamp_ms": 1762243200004
+    },
+    {
+      "rate_pct": 0.0049,
+      "timestamp_ms": 1762272000000
+    },
+    {
+      "rate_pct": 0.0012,
+      "timestamp_ms": 1762300800000
+    },
+    {
+      "rate_pct": 0.0007,
+      "timestamp_ms": 1762329600000
+    },
+    {
+      "rate_pct": 0.0043,
+      "timestamp_ms": 1762358400004
+    },
+    {
+      "rate_pct": 0.0049,
+      "timestamp_ms": 1762387200001
+    },
+    {
+      "rate_pct": 0.005,
+      "timestamp_ms": 1762416000000
+    },
+    {
+      "rate_pct": 0.0001,
+      "timestamp_ms": 1762444800001
+    },
+    {
+      "rate_pct": 0.0076,
+      "timestamp_ms": 1762473600005
+    },
+    {
+      "rate_pct": 0.0048,
+      "timestamp_ms": 1762502400003
+    },
+    {
+      "rate_pct": 0.0083,
+      "timestamp_ms": 1762531200005
+    },
+    {
+      "rate_pct": 0.0077,
+      "timestamp_ms": 1762560000011
+    },
+    {
+      "rate_pct": 0.0084,
+      "timestamp_ms": 1762588800015
+    },
+    {
+      "rate_pct": 0.0065,
+      "timestamp_ms": 1762617600001
+    },
+    {
+      "rate_pct": 0.0012,
+      "timestamp_ms": 1762646400004
+    },
+    {
+      "rate_pct": 0.0066,
+      "timestamp_ms": 1762675200000
+    },
+    {
+      "rate_pct": 0.0047,
+      "timestamp_ms": 1762704000005
+    },
+    {
+      "rate_pct": 0.0037,
+      "timestamp_ms": 1762732800000
+    },
+    {
+      "rate_pct": 0.0091,
+      "timestamp_ms": 1762761600000
+    },
+    {
+      "rate_pct": 0.0078,
+      "timestamp_ms": 1762790400003
+    },
+    {
+      "rate_pct": 0.003,
+      "timestamp_ms": 1762819200007
+    },
+    {
+      "rate_pct": -0.0026,
+      "timestamp_ms": 1762848000000
+    },
+    {
+      "rate_pct": 0.0028,
+      "timestamp_ms": 1762876800009
+    },
+    {
+      "rate_pct": 0.0036,
+      "timestamp_ms": 1762905600000
+    },
+    {
+      "rate_pct": -0.0039,
+      "timestamp_ms": 1762934400002
+    },
+    {
+      "rate_pct": 0.007,
+      "timestamp_ms": 1762963200000
+    },
+    {
+      "rate_pct": 0.007,
+      "timestamp_ms": 1762992000002
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1763020800000
+    },
+    {
+      "rate_pct": 0.0023,
+      "timestamp_ms": 1763049600001
+    },
+    {
+      "rate_pct": -0.0004,
+      "timestamp_ms": 1763078400000
+    },
+    {
+      "rate_pct": 0.0036,
+      "timestamp_ms": 1763107200000
+    },
+    {
+      "rate_pct": 0.008,
+      "timestamp_ms": 1763136000001
+    },
+    {
+      "rate_pct": 0.005,
+      "timestamp_ms": 1763164800005
+    },
+    {
+      "rate_pct": 0.0044,
+      "timestamp_ms": 1763193600000
+    },
+    {
+      "rate_pct": 0.0047,
+      "timestamp_ms": 1763222400001
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1763251200001
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1763280000000
+    },
+    {
+      "rate_pct": 0.0078,
+      "timestamp_ms": 1763308800000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1763337600003
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1763366400003
+    },
+    {
+      "rate_pct": 0.006,
+      "timestamp_ms": 1763395200000
+    },
+    {
+      "rate_pct": 0.0091,
+      "timestamp_ms": 1763424000002
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1763452800004
+    },
+    {
+      "rate_pct": 0.0059,
+      "timestamp_ms": 1763481600000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1763510400000
+    },
+    {
+      "rate_pct": 0.0067,
+      "timestamp_ms": 1763539200000
+    },
+    {
+      "rate_pct": 0.0032,
+      "timestamp_ms": 1763568000008
+    },
+    {
+      "rate_pct": 0.0071,
+      "timestamp_ms": 1763596800000
+    },
+    {
+      "rate_pct": 0.0078,
+      "timestamp_ms": 1763625600000
+    },
+    {
+      "rate_pct": 0.0068,
+      "timestamp_ms": 1763654400000
+    },
+    {
+      "rate_pct": 0.0033,
+      "timestamp_ms": 1763683200001
+    },
+    {
+      "rate_pct": 0.0019,
+      "timestamp_ms": 1763712000000
+    },
+    {
+      "rate_pct": 0.0054,
+      "timestamp_ms": 1763740800001
+    },
+    {
+      "rate_pct": 0.0019,
+      "timestamp_ms": 1763769600004
+    },
+    {
+      "rate_pct": 0.0072,
+      "timestamp_ms": 1763798400000
+    },
+    {
+      "rate_pct": 0.0047,
+      "timestamp_ms": 1763827200000
+    },
+    {
+      "rate_pct": 0.0064,
+      "timestamp_ms": 1763856000000
+    },
+    {
+      "rate_pct": -0.0024,
+      "timestamp_ms": 1763884800008
+    },
+    {
+      "rate_pct": -0.0006,
+      "timestamp_ms": 1763913600003
+    },
+    {
+      "rate_pct": -0.0,
+      "timestamp_ms": 1763942400004
+    },
+    {
+      "rate_pct": 0.0076,
+      "timestamp_ms": 1763971200000
+    },
+    {
+      "rate_pct": 0.0049,
+      "timestamp_ms": 1764000000006
+    },
+    {
+      "rate_pct": 0.004,
+      "timestamp_ms": 1764028800000
+    },
+    {
+      "rate_pct": 0.0036,
+      "timestamp_ms": 1764057600009
+    },
+    {
+      "rate_pct": 0.0006,
+      "timestamp_ms": 1764086400007
+    },
+    {
+      "rate_pct": 0.0047,
+      "timestamp_ms": 1764115200001
+    },
+    {
+      "rate_pct": -0.0009,
+      "timestamp_ms": 1764144000001
+    },
+    {
+      "rate_pct": 0.0019,
+      "timestamp_ms": 1764172800000
+    },
+    {
+      "rate_pct": 0.0025,
+      "timestamp_ms": 1764201600013
+    },
+    {
+      "rate_pct": 0.0016,
+      "timestamp_ms": 1764230400000
+    },
+    {
+      "rate_pct": 0.001,
+      "timestamp_ms": 1764259200004
+    },
+    {
+      "rate_pct": -0.0001,
+      "timestamp_ms": 1764288000008
+    },
+    {
+      "rate_pct": 0.0026,
+      "timestamp_ms": 1764316800000
+    },
+    {
+      "rate_pct": -0.0009,
+      "timestamp_ms": 1764345600008
+    },
+    {
+      "rate_pct": 0.0026,
+      "timestamp_ms": 1764374400000
+    },
+    {
+      "rate_pct": 0.0005,
+      "timestamp_ms": 1764403200005
+    },
+    {
+      "rate_pct": -0.0002,
+      "timestamp_ms": 1764432000001
+    },
+    {
+      "rate_pct": 0.0079,
+      "timestamp_ms": 1764460800003
+    },
+    {
+      "rate_pct": 0.004,
+      "timestamp_ms": 1764489600000
+    },
+    {
+      "rate_pct": 0.0037,
+      "timestamp_ms": 1764518400004
+    },
+    {
+      "rate_pct": 0.0054,
+      "timestamp_ms": 1764547200000
+    },
+    {
+      "rate_pct": 0.0078,
+      "timestamp_ms": 1764576000004
+    },
+    {
+      "rate_pct": -0.0025,
+      "timestamp_ms": 1764604800000
+    },
+    {
+      "rate_pct": 0.0069,
+      "timestamp_ms": 1764633600004
+    },
+    {
+      "rate_pct": 0.0056,
+      "timestamp_ms": 1764662400000
+    },
+    {
+      "rate_pct": 0.0041,
+      "timestamp_ms": 1764691200000
+    },
+    {
+      "rate_pct": 0.0047,
+      "timestamp_ms": 1764720000000
+    },
+    {
+      "rate_pct": 0.0011,
+      "timestamp_ms": 1764748800000
+    },
+    {
+      "rate_pct": 0.005,
+      "timestamp_ms": 1764777600005
+    },
+    {
+      "rate_pct": 0.0063,
+      "timestamp_ms": 1764806400012
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1764835200000
+    },
+    {
+      "rate_pct": 0.0096,
+      "timestamp_ms": 1764864000011
+    },
+    {
+      "rate_pct": 0.0024,
+      "timestamp_ms": 1764892800000
+    },
+    {
+      "rate_pct": 0.0098,
+      "timestamp_ms": 1764921600000
+    },
+    {
+      "rate_pct": 0.0049,
+      "timestamp_ms": 1764950400010
+    },
+    {
+      "rate_pct": 0.0045,
+      "timestamp_ms": 1764979200001
+    },
+    {
+      "rate_pct": 0.0005,
+      "timestamp_ms": 1765008000001
+    },
+    {
+      "rate_pct": 0.0032,
+      "timestamp_ms": 1765036800008
+    },
+    {
+      "rate_pct": 0.0037,
+      "timestamp_ms": 1765065600000
+    },
+    {
+      "rate_pct": -0.001,
+      "timestamp_ms": 1765094400004
+    },
+    {
+      "rate_pct": 0.0014,
+      "timestamp_ms": 1765123200000
+    },
+    {
+      "rate_pct": 0.0028,
+      "timestamp_ms": 1765152000000
+    },
+    {
+      "rate_pct": 0.0072,
+      "timestamp_ms": 1765180800000
+    },
+    {
+      "rate_pct": 0.0041,
+      "timestamp_ms": 1765209600001
+    },
+    {
+      "rate_pct": 0.0053,
+      "timestamp_ms": 1765238400001
+    },
+    {
+      "rate_pct": 0.0062,
+      "timestamp_ms": 1765267200001
+    },
+    {
+      "rate_pct": 0.0039,
+      "timestamp_ms": 1765296000007
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1765324800007
+    },
+    {
+      "rate_pct": 0.0074,
+      "timestamp_ms": 1765353600002
+    },
+    {
+      "rate_pct": 0.0035,
+      "timestamp_ms": 1765382400012
+    },
+    {
+      "rate_pct": 0.0069,
+      "timestamp_ms": 1765411200001
+    },
+    {
+      "rate_pct": 0.0001,
+      "timestamp_ms": 1765440000000
+    },
+    {
+      "rate_pct": 0.0026,
+      "timestamp_ms": 1765468800000
+    },
+    {
+      "rate_pct": -0.0002,
+      "timestamp_ms": 1765497600005
+    },
+    {
+      "rate_pct": 0.0032,
+      "timestamp_ms": 1765526400007
+    },
+    {
+      "rate_pct": -0.0002,
+      "timestamp_ms": 1765555200002
+    },
+    {
+      "rate_pct": 0.0001,
+      "timestamp_ms": 1765584000001
+    },
+    {
+      "rate_pct": -0.0014,
+      "timestamp_ms": 1765612800006
+    },
+    {
+      "rate_pct": 0.0033,
+      "timestamp_ms": 1765641600000
+    },
+    {
+      "rate_pct": 0.0083,
+      "timestamp_ms": 1765670400000
+    },
+    {
+      "rate_pct": 0.0049,
+      "timestamp_ms": 1765699200003
+    },
+    {
+      "rate_pct": 0.0083,
+      "timestamp_ms": 1765728000005
+    },
+    {
+      "rate_pct": 0.0062,
+      "timestamp_ms": 1765756800000
+    },
+    {
+      "rate_pct": 0.0034,
+      "timestamp_ms": 1765785600000
+    },
+    {
+      "rate_pct": 0.0021,
+      "timestamp_ms": 1765814400000
+    },
+    {
+      "rate_pct": -0.0006,
+      "timestamp_ms": 1765843200002
+    },
+    {
+      "rate_pct": 0.0023,
+      "timestamp_ms": 1765872000000
+    },
+    {
+      "rate_pct": -0.0019,
+      "timestamp_ms": 1765900800002
+    },
+    {
+      "rate_pct": 0.0004,
+      "timestamp_ms": 1765929600004
+    },
+    {
+      "rate_pct": 0.0037,
+      "timestamp_ms": 1765958400000
+    },
+    {
+      "rate_pct": 0.0001,
+      "timestamp_ms": 1765987200000
+    },
+    {
+      "rate_pct": -0.0018,
+      "timestamp_ms": 1766016000005
+    },
+    {
+      "rate_pct": -0.0032,
+      "timestamp_ms": 1766044800007
+    },
+    {
+      "rate_pct": 0.0059,
+      "timestamp_ms": 1766073600001
+    },
+    {
+      "rate_pct": 0.0058,
+      "timestamp_ms": 1766102400000
+    },
+    {
+      "rate_pct": 0.0073,
+      "timestamp_ms": 1766131200001
+    },
+    {
+      "rate_pct": 0.0092,
+      "timestamp_ms": 1766160000000
+    },
+    {
+      "rate_pct": 0.002,
+      "timestamp_ms": 1766188800005
+    },
+    {
+      "rate_pct": 0.0019,
+      "timestamp_ms": 1766217600000
+    },
+    {
+      "rate_pct": 0.0009,
+      "timestamp_ms": 1766246400002
+    },
+    {
+      "rate_pct": 0.0018,
+      "timestamp_ms": 1766275200000
+    },
+    {
+      "rate_pct": 0.0042,
+      "timestamp_ms": 1766304000009
+    },
+    {
+      "rate_pct": 0.0003,
+      "timestamp_ms": 1766332800000
+    },
+    {
+      "rate_pct": -0.0023,
+      "timestamp_ms": 1766361600000
+    },
+    {
+      "rate_pct": 0.0006,
+      "timestamp_ms": 1766390400005
+    },
+    {
+      "rate_pct": -0.0006,
+      "timestamp_ms": 1766419200009
+    },
+    {
+      "rate_pct": 0.0038,
+      "timestamp_ms": 1766448000000
+    },
+    {
+      "rate_pct": 0.0068,
+      "timestamp_ms": 1766476800000
+    },
+    {
+      "rate_pct": 0.0026,
+      "timestamp_ms": 1766505600001
+    },
+    {
+      "rate_pct": 0.0026,
+      "timestamp_ms": 1766534400001
+    },
+    {
+      "rate_pct": 0.0062,
+      "timestamp_ms": 1766563200001
+    },
+    {
+      "rate_pct": 0.0056,
+      "timestamp_ms": 1766592000000
+    },
+    {
+      "rate_pct": 0.0065,
+      "timestamp_ms": 1766620800000
+    },
+    {
+      "rate_pct": 0.0067,
+      "timestamp_ms": 1766649600001
+    },
+    {
+      "rate_pct": 0.005,
+      "timestamp_ms": 1766678400005
+    },
+    {
+      "rate_pct": 0.005,
+      "timestamp_ms": 1766707200004
+    },
+    {
+      "rate_pct": 0.0065,
+      "timestamp_ms": 1766736000001
+    },
+    {
+      "rate_pct": 0.0035,
+      "timestamp_ms": 1766764800007
+    },
+    {
+      "rate_pct": 0.004,
+      "timestamp_ms": 1766793600000
+    },
+    {
+      "rate_pct": -0.0005,
+      "timestamp_ms": 1766822400000
+    },
+    {
+      "rate_pct": 0.0081,
+      "timestamp_ms": 1766851200011
+    },
+    {
+      "rate_pct": 0.0051,
+      "timestamp_ms": 1766880000008
+    },
+    {
+      "rate_pct": 0.0079,
+      "timestamp_ms": 1766908800000
+    },
+    {
+      "rate_pct": 0.0049,
+      "timestamp_ms": 1766937600000
+    },
+    {
+      "rate_pct": 0.0092,
+      "timestamp_ms": 1766966400016
+    },
+    {
+      "rate_pct": 0.0085,
+      "timestamp_ms": 1766995200001
+    },
+    {
+      "rate_pct": 0.0019,
+      "timestamp_ms": 1767024000000
+    },
+    {
+      "rate_pct": -0.0015,
+      "timestamp_ms": 1767052800005
+    },
+    {
+      "rate_pct": 0.0039,
+      "timestamp_ms": 1767081600001
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1767110400003
+    },
+    {
+      "rate_pct": 0.0052,
+      "timestamp_ms": 1767139200004
+    },
+    {
+      "rate_pct": 0.0012,
+      "timestamp_ms": 1767168000001
+    },
+    {
+      "rate_pct": 0.0035,
+      "timestamp_ms": 1767196800001
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1767225600008
+    },
+    {
+      "rate_pct": 0.0088,
+      "timestamp_ms": 1767254400002
+    },
+    {
+      "rate_pct": -0.0006,
+      "timestamp_ms": 1767283200001
+    },
+    {
+      "rate_pct": 0.0051,
+      "timestamp_ms": 1767312000006
+    },
+    {
+      "rate_pct": 0.0031,
+      "timestamp_ms": 1767340800007
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1767369600000
+    },
+    {
+      "rate_pct": 0.0052,
+      "timestamp_ms": 1767398400001
+    },
+    {
+      "rate_pct": 0.0034,
+      "timestamp_ms": 1767427200000
+    },
+    {
+      "rate_pct": 0.0032,
+      "timestamp_ms": 1767456000000
+    },
+    {
+      "rate_pct": 0.0076,
+      "timestamp_ms": 1767484800000
+    },
+    {
+      "rate_pct": 0.0002,
+      "timestamp_ms": 1767513600000
+    },
+    {
+      "rate_pct": 0.0072,
+      "timestamp_ms": 1767542400001
+    },
+    {
+      "rate_pct": 0.0079,
+      "timestamp_ms": 1767571200000
+    },
+    {
+      "rate_pct": 0.001,
+      "timestamp_ms": 1767600000000
+    },
+    {
+      "rate_pct": 0.0051,
+      "timestamp_ms": 1767628800000
+    },
+    {
+      "rate_pct": 0.008,
+      "timestamp_ms": 1767657600010
+    },
+    {
+      "rate_pct": 0.0069,
+      "timestamp_ms": 1767686400000
+    },
+    {
+      "rate_pct": 0.0043,
+      "timestamp_ms": 1767715200000
+    },
+    {
+      "rate_pct": 0.0077,
+      "timestamp_ms": 1767744000001
+    },
+    {
+      "rate_pct": 0.0073,
+      "timestamp_ms": 1767772800001
+    },
+    {
+      "rate_pct": 0.0039,
+      "timestamp_ms": 1767801600001
+    },
+    {
+      "rate_pct": 0.007,
+      "timestamp_ms": 1767830400001
+    },
+    {
+      "rate_pct": 0.0077,
+      "timestamp_ms": 1767859200000
+    },
+    {
+      "rate_pct": 0.0,
+      "timestamp_ms": 1767888000000
+    },
+    {
+      "rate_pct": 0.0066,
+      "timestamp_ms": 1767916800003
+    },
+    {
+      "rate_pct": 0.0038,
+      "timestamp_ms": 1767945600000
+    },
+    {
+      "rate_pct": 0.0056,
+      "timestamp_ms": 1767974400001
+    },
+    {
+      "rate_pct": 0.009,
+      "timestamp_ms": 1768003200000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1768032000002
+    },
+    {
+      "rate_pct": 0.0053,
+      "timestamp_ms": 1768060800001
+    },
+    {
+      "rate_pct": 0.0098,
+      "timestamp_ms": 1768089600003
+    },
+    {
+      "rate_pct": 0.0066,
+      "timestamp_ms": 1768118400006
+    },
+    {
+      "rate_pct": 0.0059,
+      "timestamp_ms": 1768147200000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1768176000005
+    },
+    {
+      "rate_pct": 0.0035,
+      "timestamp_ms": 1768204800000
+    },
+    {
+      "rate_pct": 0.0067,
+      "timestamp_ms": 1768233600000
+    },
+    {
+      "rate_pct": 0.0047,
+      "timestamp_ms": 1768262400007
+    },
+    {
+      "rate_pct": 0.0092,
+      "timestamp_ms": 1768291200009
+    },
+    {
+      "rate_pct": 0.0027,
+      "timestamp_ms": 1768320000002
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1768348800000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1768377600001
+    },
+    {
+      "rate_pct": 0.0083,
+      "timestamp_ms": 1768406400004
+    },
+    {
+      "rate_pct": 0.0054,
+      "timestamp_ms": 1768435200000
+    },
+    {
+      "rate_pct": 0.0007,
+      "timestamp_ms": 1768464000004
+    },
+    {
+      "rate_pct": 0.0097,
+      "timestamp_ms": 1768492800002
+    },
+    {
+      "rate_pct": 0.0033,
+      "timestamp_ms": 1768521600000
+    },
+    {
+      "rate_pct": 0.0036,
+      "timestamp_ms": 1768550400000
+    },
+    {
+      "rate_pct": 0.0028,
+      "timestamp_ms": 1768579200001
+    },
+    {
+      "rate_pct": 0.0084,
+      "timestamp_ms": 1768608000000
+    },
+    {
+      "rate_pct": 0.0081,
+      "timestamp_ms": 1768636800000
+    },
+    {
+      "rate_pct": 0.006,
+      "timestamp_ms": 1768665600002
+    },
+    {
+      "rate_pct": 0.0038,
+      "timestamp_ms": 1768694400001
+    },
+    {
+      "rate_pct": 0.0014,
+      "timestamp_ms": 1768723200000
+    },
+    {
+      "rate_pct": 0.0025,
+      "timestamp_ms": 1768752000000
+    },
+    {
+      "rate_pct": 0.0052,
+      "timestamp_ms": 1768780800007
+    },
+    {
+      "rate_pct": -0.0011,
+      "timestamp_ms": 1768809600007
+    },
+    {
+      "rate_pct": 0.0014,
+      "timestamp_ms": 1768838400007
+    },
+    {
+      "rate_pct": 0.0086,
+      "timestamp_ms": 1768867200005
+    },
+    {
+      "rate_pct": 0.0061,
+      "timestamp_ms": 1768896000001
+    },
+    {
+      "rate_pct": 0.0012,
+      "timestamp_ms": 1768924800009
+    },
+    {
+      "rate_pct": 0.0006,
+      "timestamp_ms": 1768953600001
+    },
+    {
+      "rate_pct": 0.0005,
+      "timestamp_ms": 1768982400011
+    },
+    {
+      "rate_pct": 0.0011,
+      "timestamp_ms": 1769011200011
+    },
+    {
+      "rate_pct": 0.0021,
+      "timestamp_ms": 1769040000010
+    },
+    {
+      "rate_pct": 0.0077,
+      "timestamp_ms": 1769068800003
+    },
+    {
+      "rate_pct": -0.0029,
+      "timestamp_ms": 1769097600005
+    },
+    {
+      "rate_pct": 0.0017,
+      "timestamp_ms": 1769126400005
+    },
+    {
+      "rate_pct": 0.0029,
+      "timestamp_ms": 1769155200000
+    },
+    {
+      "rate_pct": 0.005,
+      "timestamp_ms": 1769184000011
+    },
+    {
+      "rate_pct": 0.0037,
+      "timestamp_ms": 1769212800011
+    },
+    {
+      "rate_pct": 0.0012,
+      "timestamp_ms": 1769241600002
+    },
+    {
+      "rate_pct": 0.0013,
+      "timestamp_ms": 1769270400001
+    },
+    {
+      "rate_pct": 0.0041,
+      "timestamp_ms": 1769299200002
+    },
+    {
+      "rate_pct": 0.0068,
+      "timestamp_ms": 1769328000011
+    },
+    {
+      "rate_pct": 0.0041,
+      "timestamp_ms": 1769356800005
+    },
+    {
+      "rate_pct": -0.0136,
+      "timestamp_ms": 1769385600000
+    },
+    {
+      "rate_pct": 0.0065,
+      "timestamp_ms": 1769414400003
+    },
+    {
+      "rate_pct": 0.0013,
+      "timestamp_ms": 1769443200000
+    },
+    {
+      "rate_pct": 0.0073,
+      "timestamp_ms": 1769472000002
+    },
+    {
+      "rate_pct": 0.0087,
+      "timestamp_ms": 1769500800000
+    },
+    {
+      "rate_pct": 0.0095,
+      "timestamp_ms": 1769529600000
+    },
+    {
+      "rate_pct": 0.0087,
+      "timestamp_ms": 1769558400000
+    },
+    {
+      "rate_pct": 0.0096,
+      "timestamp_ms": 1769587200000
+    },
+    {
+      "rate_pct": 0.0045,
+      "timestamp_ms": 1769616000000
+    },
+    {
+      "rate_pct": 0.0047,
+      "timestamp_ms": 1769644800000
+    },
+    {
+      "rate_pct": 0.0041,
+      "timestamp_ms": 1769673600009
+    },
+    {
+      "rate_pct": -0.0012,
+      "timestamp_ms": 1769702400000
+    },
+    {
+      "rate_pct": 0.0005,
+      "timestamp_ms": 1769731200008
+    },
+    {
+      "rate_pct": -0.0003,
+      "timestamp_ms": 1769760000000
+    },
+    {
+      "rate_pct": -0.0001,
+      "timestamp_ms": 1769788800001
+    },
+    {
+      "rate_pct": -0.007,
+      "timestamp_ms": 1769817600000
+    },
+    {
+      "rate_pct": 0.0019,
+      "timestamp_ms": 1769846400001
+    },
+    {
+      "rate_pct": -0.0089,
+      "timestamp_ms": 1769875200009
+    },
+    {
+      "rate_pct": -0.0164,
+      "timestamp_ms": 1769904000001
+    },
+    {
+      "rate_pct": 0.0014,
+      "timestamp_ms": 1769932800004
+    },
+    {
+      "rate_pct": -0.0073,
+      "timestamp_ms": 1769961600000
+    },
+    {
+      "rate_pct": -0.0153,
+      "timestamp_ms": 1769990400000
+    },
+    {
+      "rate_pct": -0.0082,
+      "timestamp_ms": 1770019200014
+    },
+    {
+      "rate_pct": -0.0109,
+      "timestamp_ms": 1770048000000
+    },
+    {
+      "rate_pct": -0.0155,
+      "timestamp_ms": 1770076800000
+    },
+    {
+      "rate_pct": 0.001,
+      "timestamp_ms": 1770105600007
+    },
+    {
+      "rate_pct": -0.0039,
+      "timestamp_ms": 1770134400000
+    },
+    {
+      "rate_pct": -0.0025,
+      "timestamp_ms": 1770163200002
+    },
+    {
+      "rate_pct": 0.0021,
+      "timestamp_ms": 1770192000007
+    },
+    {
+      "rate_pct": -0.0061,
+      "timestamp_ms": 1770220800000
+    },
+    {
+      "rate_pct": 0.0055,
+      "timestamp_ms": 1770249600011
+    },
+    {
+      "rate_pct": -0.0005,
+      "timestamp_ms": 1770278400000
+    },
+    {
+      "rate_pct": -0.0078,
+      "timestamp_ms": 1770307200007
+    },
+    {
+      "rate_pct": -0.0277,
+      "timestamp_ms": 1770336000000
+    },
+    {
+      "rate_pct": -0.0084,
+      "timestamp_ms": 1770364800001
+    },
+    {
+      "rate_pct": 0.0019,
+      "timestamp_ms": 1770393600000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1770422400003
+    },
+    {
+      "rate_pct": -0.0002,
+      "timestamp_ms": 1770451200000
+    },
+    {
+      "rate_pct": 0.0016,
+      "timestamp_ms": 1770480000010
+    },
+    {
+      "rate_pct": 0.0027,
+      "timestamp_ms": 1770508800003
+    },
+    {
+      "rate_pct": -0.003,
+      "timestamp_ms": 1770537600000
+    },
+    {
+      "rate_pct": -0.0054,
+      "timestamp_ms": 1770566400000
+    },
+    {
+      "rate_pct": -0.004,
+      "timestamp_ms": 1770595200002
+    },
+    {
+      "rate_pct": -0.0049,
+      "timestamp_ms": 1770624000001
+    },
+    {
+      "rate_pct": -0.0003,
+      "timestamp_ms": 1770652800007
+    },
+    {
+      "rate_pct": 0.0043,
+      "timestamp_ms": 1770681600000
+    },
+    {
+      "rate_pct": -0.0152,
+      "timestamp_ms": 1770710400007
+    },
+    {
+      "rate_pct": -0.0194,
+      "timestamp_ms": 1770739200000
+    },
+    {
+      "rate_pct": -0.0084,
+      "timestamp_ms": 1770768000000
+    },
+    {
+      "rate_pct": -0.013,
+      "timestamp_ms": 1770796800006
+    },
+    {
+      "rate_pct": -0.0123,
+      "timestamp_ms": 1770825600000
+    },
+    {
+      "rate_pct": -0.0025,
+      "timestamp_ms": 1770854400000
+    },
+    {
+      "rate_pct": 0.0022,
+      "timestamp_ms": 1770883200001
+    },
+    {
+      "rate_pct": -0.0041,
+      "timestamp_ms": 1770912000001
+    },
+    {
+      "rate_pct": -0.0107,
+      "timestamp_ms": 1770940800007
+    },
+    {
+      "rate_pct": -0.0029,
+      "timestamp_ms": 1770969600003
+    },
+    {
+      "rate_pct": 0.0043,
+      "timestamp_ms": 1770998400005
+    },
+    {
+      "rate_pct": -0.0003,
+      "timestamp_ms": 1771027200002
+    },
+    {
+      "rate_pct": 0.0014,
+      "timestamp_ms": 1771056000004
+    },
+    {
+      "rate_pct": -0.0019,
+      "timestamp_ms": 1771084800002
+    },
+    {
+      "rate_pct": -0.0064,
+      "timestamp_ms": 1771113600000
+    },
+    {
+      "rate_pct": 0.0062,
+      "timestamp_ms": 1771142400002
+    },
+    {
+      "rate_pct": -0.0076,
+      "timestamp_ms": 1771171200000
+    },
+    {
+      "rate_pct": -0.0053,
+      "timestamp_ms": 1771200000001
+    },
+    {
+      "rate_pct": -0.0059,
+      "timestamp_ms": 1771228800003
+    },
+    {
+      "rate_pct": -0.0035,
+      "timestamp_ms": 1771257600000
+    },
+    {
+      "rate_pct": 0.0053,
+      "timestamp_ms": 1771286400008
+    },
+    {
+      "rate_pct": 0.0008,
+      "timestamp_ms": 1771315200001
+    },
+    {
+      "rate_pct": -0.0047,
+      "timestamp_ms": 1771344000002
+    },
+    {
+      "rate_pct": 0.0011,
+      "timestamp_ms": 1771372800000
+    },
+    {
+      "rate_pct": -0.0038,
+      "timestamp_ms": 1771401600000
+    },
+    {
+      "rate_pct": -0.0009,
+      "timestamp_ms": 1771430400011
+    },
+    {
+      "rate_pct": -0.0106,
+      "timestamp_ms": 1771459200013
+    },
+    {
+      "rate_pct": -0.003,
+      "timestamp_ms": 1771488000000
+    },
+    {
+      "rate_pct": -0.0079,
+      "timestamp_ms": 1771516800003
+    },
+    {
+      "rate_pct": -0.0046,
+      "timestamp_ms": 1771545600000
+    },
+    {
+      "rate_pct": -0.0032,
+      "timestamp_ms": 1771574400000
+    },
+    {
+      "rate_pct": -0.0072,
+      "timestamp_ms": 1771603200000
+    },
+    {
+      "rate_pct": 0.003,
+      "timestamp_ms": 1771632000004
+    },
+    {
+      "rate_pct": 0.0046,
+      "timestamp_ms": 1771660800000
+    },
+    {
+      "rate_pct": 0.0066,
+      "timestamp_ms": 1771689600005
+    },
+    {
+      "rate_pct": 0.0038,
+      "timestamp_ms": 1771718400001
+    },
+    {
+      "rate_pct": 0.0016,
+      "timestamp_ms": 1771747200004
+    },
+    {
+      "rate_pct": -0.0044,
+      "timestamp_ms": 1771776000000
+    },
+    {
+      "rate_pct": -0.0033,
+      "timestamp_ms": 1771804800001
+    },
+    {
+      "rate_pct": -0.0365,
+      "timestamp_ms": 1771833600000
+    },
+    {
+      "rate_pct": 0.0017,
+      "timestamp_ms": 1771862400000
+    },
+    {
+      "rate_pct": 0.0026,
+      "timestamp_ms": 1771891200007
+    },
+    {
+      "rate_pct": -0.0044,
+      "timestamp_ms": 1771920000000
+    },
+    {
+      "rate_pct": -0.003,
+      "timestamp_ms": 1771948800001
+    },
+    {
+      "rate_pct": -0.0025,
+      "timestamp_ms": 1771977600001
+    },
+    {
+      "rate_pct": 0.0046,
+      "timestamp_ms": 1772006400007
+    },
+    {
+      "rate_pct": 0.0058,
+      "timestamp_ms": 1772035200000
+    },
+    {
+      "rate_pct": 0.0078,
+      "timestamp_ms": 1772064000000
+    },
+    {
+      "rate_pct": -0.0026,
+      "timestamp_ms": 1772092800006
+    },
+    {
+      "rate_pct": 0.0039,
+      "timestamp_ms": 1772121600002
+    },
+    {
+      "rate_pct": 0.0014,
+      "timestamp_ms": 1772150400007
+    },
+    {
+      "rate_pct": 0.0003,
+      "timestamp_ms": 1772179200000
+    },
+    {
+      "rate_pct": -0.011,
+      "timestamp_ms": 1772208000001
+    },
+    {
+      "rate_pct": -0.0088,
+      "timestamp_ms": 1772236800000
+    },
+    {
+      "rate_pct": -0.0095,
+      "timestamp_ms": 1772265600000
+    },
+    {
+      "rate_pct": -0.0072,
+      "timestamp_ms": 1772294400004
+    },
+    {
+      "rate_pct": -0.0034,
+      "timestamp_ms": 1772323200005
+    },
+    {
+      "rate_pct": 0.005,
+      "timestamp_ms": 1772352000000
+    },
+    {
+      "rate_pct": 0.0053,
+      "timestamp_ms": 1772380800002
+    },
+    {
+      "rate_pct": -0.0076,
+      "timestamp_ms": 1772409600001
+    },
+    {
+      "rate_pct": -0.0043,
+      "timestamp_ms": 1772438400007
+    },
+    {
+      "rate_pct": -0.0067,
+      "timestamp_ms": 1772467200000
+    },
+    {
+      "rate_pct": 0.0049,
+      "timestamp_ms": 1772496000000
+    },
+    {
+      "rate_pct": -0.0028,
+      "timestamp_ms": 1772524800000
+    },
+    {
+      "rate_pct": -0.0095,
+      "timestamp_ms": 1772553600007
+    },
+    {
+      "rate_pct": -0.0004,
+      "timestamp_ms": 1772582400001
+    },
+    {
+      "rate_pct": -0.0071,
+      "timestamp_ms": 1772611200005
+    },
+    {
+      "rate_pct": 0.0066,
+      "timestamp_ms": 1772640000000
+    },
+    {
+      "rate_pct": -0.0013,
+      "timestamp_ms": 1772668800000
+    },
+    {
+      "rate_pct": -0.0008,
+      "timestamp_ms": 1772697600000
+    },
+    {
+      "rate_pct": -0.0015,
+      "timestamp_ms": 1772726400004
+    },
+    {
+      "rate_pct": 0.0044,
+      "timestamp_ms": 1772755200001
+    },
+    {
+      "rate_pct": -0.0024,
+      "timestamp_ms": 1772784000001
+    },
+    {
+      "rate_pct": -0.0099,
+      "timestamp_ms": 1772812800004
+    },
+    {
+      "rate_pct": -0.005,
+      "timestamp_ms": 1772841600001
+    },
+    {
+      "rate_pct": -0.0009,
+      "timestamp_ms": 1772870400012
+    },
+    {
+      "rate_pct": -0.0023,
+      "timestamp_ms": 1772899200001
+    },
+    {
+      "rate_pct": -0.0048,
+      "timestamp_ms": 1772928000001
+    },
+    {
+      "rate_pct": -0.0088,
+      "timestamp_ms": 1772956800000
+    },
+    {
+      "rate_pct": -0.0075,
+      "timestamp_ms": 1772985600002
+    },
+    {
+      "rate_pct": -0.0225,
+      "timestamp_ms": 1773014400000
+    },
+    {
+      "rate_pct": 0.0026,
+      "timestamp_ms": 1773043200004
+    },
+    {
+      "rate_pct": 0.0055,
+      "timestamp_ms": 1773072000003
+    },
+    {
+      "rate_pct": 0.0043,
+      "timestamp_ms": 1773100800012
+    },
+    {
+      "rate_pct": 0.0051,
+      "timestamp_ms": 1773129600002
+    },
+    {
+      "rate_pct": 0.0027,
+      "timestamp_ms": 1773158400001
+    },
+    {
+      "rate_pct": -0.0004,
+      "timestamp_ms": 1773187200000
+    },
+    {
+      "rate_pct": -0.0001,
+      "timestamp_ms": 1773216000007
+    },
+    {
+      "rate_pct": 0.003,
+      "timestamp_ms": 1773244800010
+    },
+    {
+      "rate_pct": 0.0009,
+      "timestamp_ms": 1773273600000
+    },
+    {
+      "rate_pct": -0.0068,
+      "timestamp_ms": 1773302400000
+    },
+    {
+      "rate_pct": -0.0015,
+      "timestamp_ms": 1773331200000
+    },
+    {
+      "rate_pct": 0.0023,
+      "timestamp_ms": 1773360000006
+    },
+    {
+      "rate_pct": -0.0001,
+      "timestamp_ms": 1773388800001
+    },
+    {
+      "rate_pct": 0.0021,
+      "timestamp_ms": 1773417600000
+    },
+    {
+      "rate_pct": 0.0027,
+      "timestamp_ms": 1773446400001
+    },
+    {
+      "rate_pct": -0.0024,
+      "timestamp_ms": 1773475200000
+    },
+    {
+      "rate_pct": -0.0041,
+      "timestamp_ms": 1773504000007
+    },
+    {
+      "rate_pct": -0.0047,
+      "timestamp_ms": 1773532800000
+    },
+    {
+      "rate_pct": 0.0014,
+      "timestamp_ms": 1773561600000
+    },
+    {
+      "rate_pct": 0.0035,
+      "timestamp_ms": 1773590400000
+    },
+    {
+      "rate_pct": 0.0076,
+      "timestamp_ms": 1773619200000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1773648000010
+    },
+    {
+      "rate_pct": 0.0071,
+      "timestamp_ms": 1773676800000
+    },
+    {
+      "rate_pct": 0.0052,
+      "timestamp_ms": 1773705600000
+    },
+    {
+      "rate_pct": 0.002,
+      "timestamp_ms": 1773734400002
+    },
+    {
+      "rate_pct": -0.0011,
+      "timestamp_ms": 1773763200011
+    },
+    {
+      "rate_pct": 0.0015,
+      "timestamp_ms": 1773792000002
+    },
+    {
+      "rate_pct": 0.0013,
+      "timestamp_ms": 1773820800002
+    },
+    {
+      "rate_pct": -0.0014,
+      "timestamp_ms": 1773849600005
+    },
+    {
+      "rate_pct": -0.0004,
+      "timestamp_ms": 1773878400000
+    },
+    {
+      "rate_pct": -0.0009,
+      "timestamp_ms": 1773907200003
+    },
+    {
+      "rate_pct": 0.0001,
+      "timestamp_ms": 1773936000003
+    },
+    {
+      "rate_pct": -0.0063,
+      "timestamp_ms": 1773964800002
+    },
+    {
+      "rate_pct": -0.0059,
+      "timestamp_ms": 1773993600000
+    },
+    {
+      "rate_pct": -0.0001,
+      "timestamp_ms": 1774022400000
+    },
+    {
+      "rate_pct": 0.0024,
+      "timestamp_ms": 1774051200000
+    },
+    {
+      "rate_pct": 0.0011,
+      "timestamp_ms": 1774080000000
+    },
+    {
+      "rate_pct": 0.0021,
+      "timestamp_ms": 1774108800014
+    },
+    {
+      "rate_pct": -0.0011,
+      "timestamp_ms": 1774137600012
+    },
+    {
+      "rate_pct": 0.0011,
+      "timestamp_ms": 1774166400007
+    },
+    {
+      "rate_pct": -0.0074,
+      "timestamp_ms": 1774195200002
+    },
+    {
+      "rate_pct": -0.0059,
+      "timestamp_ms": 1774224000000
+    },
+    {
+      "rate_pct": -0.0003,
+      "timestamp_ms": 1774252800003
+    },
+    {
+      "rate_pct": 0.0061,
+      "timestamp_ms": 1774281600002
+    },
+    {
+      "rate_pct": 0.0029,
+      "timestamp_ms": 1774310400000
+    },
+    {
+      "rate_pct": 0.0021,
+      "timestamp_ms": 1774339200000
+    },
+    {
+      "rate_pct": -0.0027,
+      "timestamp_ms": 1774368000003
+    },
+    {
+      "rate_pct": 0.0035,
+      "timestamp_ms": 1774396800000
+    },
+    {
+      "rate_pct": -0.0042,
+      "timestamp_ms": 1774425600000
+    },
+    {
+      "rate_pct": 0.0005,
+      "timestamp_ms": 1774454400013
+    },
+    {
+      "rate_pct": 0.0045,
+      "timestamp_ms": 1774483200001
+    },
+    {
+      "rate_pct": 0.0007,
+      "timestamp_ms": 1774512000001
+    },
+    {
+      "rate_pct": -0.0082,
+      "timestamp_ms": 1774540800000
+    },
+    {
+      "rate_pct": -0.0002,
+      "timestamp_ms": 1774569600006
+    },
+    {
+      "rate_pct": -0.0052,
+      "timestamp_ms": 1774598400000
+    },
+    {
+      "rate_pct": -0.0181,
+      "timestamp_ms": 1774627200000
+    },
+    {
+      "rate_pct": -0.005,
+      "timestamp_ms": 1774656000005
+    },
+    {
+      "rate_pct": -0.0081,
+      "timestamp_ms": 1774684800005
+    },
+    {
+      "rate_pct": 0.0,
+      "timestamp_ms": 1774713600000
+    },
+    {
+      "rate_pct": -0.0011,
+      "timestamp_ms": 1774742400003
+    },
+    {
+      "rate_pct": -0.0037,
+      "timestamp_ms": 1774771200001
+    },
+    {
+      "rate_pct": -0.0038,
+      "timestamp_ms": 1774800000000
+    },
+    {
+      "rate_pct": -0.0026,
+      "timestamp_ms": 1774828800000
+    },
+    {
+      "rate_pct": 0.0012,
+      "timestamp_ms": 1774857600005
+    },
+    {
+      "rate_pct": 0.0041,
+      "timestamp_ms": 1774886400000
+    },
+    {
+      "rate_pct": 0.0003,
+      "timestamp_ms": 1774915200000
+    },
+    {
+      "rate_pct": 0.0017,
+      "timestamp_ms": 1774944000000
+    },
+    {
+      "rate_pct": -0.001,
+      "timestamp_ms": 1774972800000
+    },
+    {
+      "rate_pct": -0.0003,
+      "timestamp_ms": 1775001600000
+    },
+    {
+      "rate_pct": 0.0048,
+      "timestamp_ms": 1775030400000
+    },
+    {
+      "rate_pct": 0.0044,
+      "timestamp_ms": 1775059200000
+    },
+    {
+      "rate_pct": -0.009,
+      "timestamp_ms": 1775088000003
+    },
+    {
+      "rate_pct": -0.0134,
+      "timestamp_ms": 1775116800001
+    },
+    {
+      "rate_pct": -0.0073,
+      "timestamp_ms": 1775145600001
+    },
+    {
+      "rate_pct": -0.003,
+      "timestamp_ms": 1775174400000
+    },
+    {
+      "rate_pct": 0.0006,
+      "timestamp_ms": 1775203200008
+    },
+    {
+      "rate_pct": -0.001,
+      "timestamp_ms": 1775232000008
+    },
+    {
+      "rate_pct": -0.0,
+      "timestamp_ms": 1775260800000
+    },
+    {
+      "rate_pct": 0.0049,
+      "timestamp_ms": 1775289600003
+    },
+    {
+      "rate_pct": 0.0007,
+      "timestamp_ms": 1775318400000
+    },
+    {
+      "rate_pct": 0.0024,
+      "timestamp_ms": 1775347200008
+    },
+    {
+      "rate_pct": 0.0006,
+      "timestamp_ms": 1775376000000
+    },
+    {
+      "rate_pct": -0.0043,
+      "timestamp_ms": 1775404800001
+    },
+    {
+      "rate_pct": 0.0024,
+      "timestamp_ms": 1775433600004
+    },
+    {
+      "rate_pct": 0.0062,
+      "timestamp_ms": 1775462400001
+    },
+    {
+      "rate_pct": 0.002,
+      "timestamp_ms": 1775491200003
+    },
+    {
+      "rate_pct": -0.0039,
+      "timestamp_ms": 1775520000000
+    },
+    {
+      "rate_pct": -0.003,
+      "timestamp_ms": 1775548800000
+    },
+    {
+      "rate_pct": 0.001,
+      "timestamp_ms": 1775577600000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1775606400000
+    },
+    {
+      "rate_pct": 0.0058,
+      "timestamp_ms": 1775635200000
+    },
+    {
+      "rate_pct": 0.0067,
+      "timestamp_ms": 1775664000006
+    },
+    {
+      "rate_pct": 0.0033,
+      "timestamp_ms": 1775692800000
+    },
+    {
+      "rate_pct": -0.0015,
+      "timestamp_ms": 1775721600010
+    },
+    {
+      "rate_pct": 0.0019,
+      "timestamp_ms": 1775750400001
+    },
+    {
+      "rate_pct": 0.0013,
+      "timestamp_ms": 1775779200000
+    },
+    {
+      "rate_pct": 0.0003,
+      "timestamp_ms": 1775808000005
+    },
+    {
+      "rate_pct": -0.0004,
+      "timestamp_ms": 1775836800000
+    },
+    {
+      "rate_pct": -0.0066,
+      "timestamp_ms": 1775865600000
+    },
+    {
+      "rate_pct": -0.0076,
+      "timestamp_ms": 1775894400000
+    },
+    {
+      "rate_pct": -0.0033,
+      "timestamp_ms": 1775923200003
+    },
+    {
+      "rate_pct": 0.0083,
+      "timestamp_ms": 1775952000000
+    },
+    {
+      "rate_pct": -0.0036,
+      "timestamp_ms": 1775980800000
+    },
+    {
+      "rate_pct": -0.0055,
+      "timestamp_ms": 1776009600000
+    },
+    {
+      "rate_pct": -0.001,
+      "timestamp_ms": 1776038400011
+    },
+    {
+      "rate_pct": 0.003,
+      "timestamp_ms": 1776067200006
+    },
+    {
+      "rate_pct": 0.003,
+      "timestamp_ms": 1776096000000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1776124800005
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1776153600003
+    },
+    {
+      "rate_pct": 0.0035,
+      "timestamp_ms": 1776182400001
+    },
+    {
+      "rate_pct": 0.0018,
+      "timestamp_ms": 1776211200000
+    },
+    {
+      "rate_pct": 0.0016,
+      "timestamp_ms": 1776240000000
+    },
+    {
+      "rate_pct": 0.0003,
+      "timestamp_ms": 1776268800000
+    },
+    {
+      "rate_pct": -0.0017,
+      "timestamp_ms": 1776297600013
+    },
+    {
+      "rate_pct": -0.0051,
+      "timestamp_ms": 1776326400000
+    },
+    {
+      "rate_pct": -0.0038,
+      "timestamp_ms": 1776355200000
+    },
+    {
+      "rate_pct": 0.0009,
+      "timestamp_ms": 1776384000001
+    },
+    {
+      "rate_pct": 0.0008,
+      "timestamp_ms": 1776412800011
+    },
+    {
+      "rate_pct": 0.0018,
+      "timestamp_ms": 1776441600001
+    },
+    {
+      "rate_pct": -0.0023,
+      "timestamp_ms": 1776470400001
+    },
+    {
+      "rate_pct": -0.0011,
+      "timestamp_ms": 1776499200006
+    },
+    {
+      "rate_pct": -0.0151,
+      "timestamp_ms": 1776528000000
+    },
+    {
+      "rate_pct": -0.0104,
+      "timestamp_ms": 1776556800002
+    },
+    {
+      "rate_pct": -0.0114,
+      "timestamp_ms": 1776585600010
+    },
+    {
+      "rate_pct": -0.023,
+      "timestamp_ms": 1776614400001
+    },
+    {
+      "rate_pct": -0.0009,
+      "timestamp_ms": 1776643200000
+    },
+    {
+      "rate_pct": -0.0014,
+      "timestamp_ms": 1776672000000
+    },
+    {
+      "rate_pct": 0.0008,
+      "timestamp_ms": 1776700800001
+    },
+    {
+      "rate_pct": -0.0044,
+      "timestamp_ms": 1776729600000
+    },
+    {
+      "rate_pct": -0.0037,
+      "timestamp_ms": 1776758400004
+    },
+    {
+      "rate_pct": -0.0037,
+      "timestamp_ms": 1776787200004
+    },
+    {
+      "rate_pct": -0.0021,
+      "timestamp_ms": 1776816000004
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1776844800000
+    },
+    {
+      "rate_pct": 0.0078,
+      "timestamp_ms": 1776873600000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1776902400000
+    },
+    {
+      "rate_pct": -0.002,
+      "timestamp_ms": 1776931200000
+    },
+    {
+      "rate_pct": -0.006,
+      "timestamp_ms": 1776960000004
+    },
+    {
+      "rate_pct": -0.0036,
+      "timestamp_ms": 1776988800006
+    },
+    {
+      "rate_pct": -0.007,
+      "timestamp_ms": 1777017600000
+    },
+    {
+      "rate_pct": -0.0121,
+      "timestamp_ms": 1777046400000
+    },
+    {
+      "rate_pct": -0.0044,
+      "timestamp_ms": 1777075200000
+    },
+    {
+      "rate_pct": -0.0021,
+      "timestamp_ms": 1777104000002
+    },
+    {
+      "rate_pct": -0.0044,
+      "timestamp_ms": 1777132800002
+    },
+    {
+      "rate_pct": -0.0011,
+      "timestamp_ms": 1777161600003
+    },
+    {
+      "rate_pct": -0.0019,
+      "timestamp_ms": 1777190400007
+    },
+    {
+      "rate_pct": -0.0028,
+      "timestamp_ms": 1777219200004
+    },
+    {
+      "rate_pct": -0.0066,
+      "timestamp_ms": 1777248000004
+    },
+    {
+      "rate_pct": -0.0079,
+      "timestamp_ms": 1777276800000
+    },
+    {
+      "rate_pct": -0.0076,
+      "timestamp_ms": 1777305600002
+    },
+    {
+      "rate_pct": -0.0161,
+      "timestamp_ms": 1777334400001
+    },
+    {
+      "rate_pct": -0.0117,
+      "timestamp_ms": 1777363200000
+    },
+    {
+      "rate_pct": 0.0,
+      "timestamp_ms": 1777392000004
+    },
+    {
+      "rate_pct": 0.0028,
+      "timestamp_ms": 1777420800006
+    },
+    {
+      "rate_pct": 0.0047,
+      "timestamp_ms": 1777449600011
+    },
+    {
+      "rate_pct": 0.0048,
+      "timestamp_ms": 1777478400003
+    },
+    {
+      "rate_pct": -0.0061,
+      "timestamp_ms": 1777507200002
+    },
+    {
+      "rate_pct": -0.0046,
+      "timestamp_ms": 1777536000000
+    },
+    {
+      "rate_pct": -0.0077,
+      "timestamp_ms": 1777564800000
+    },
+    {
+      "rate_pct": -0.004,
+      "timestamp_ms": 1777593600000
+    },
+    {
+      "rate_pct": -0.0019,
+      "timestamp_ms": 1777622400005
+    },
+    {
+      "rate_pct": -0.0021,
+      "timestamp_ms": 1777651200000
+    },
+    {
+      "rate_pct": -0.0004,
+      "timestamp_ms": 1777680000006
+    },
+    {
+      "rate_pct": -0.0038,
+      "timestamp_ms": 1777708800000
+    },
+    {
+      "rate_pct": -0.0004,
+      "timestamp_ms": 1777737600010
+    },
+    {
+      "rate_pct": 0.0035,
+      "timestamp_ms": 1777766400005
+    },
+    {
+      "rate_pct": -0.0016,
+      "timestamp_ms": 1777795200003
+    },
+    {
+      "rate_pct": 0.0087,
+      "timestamp_ms": 1777824000000
+    },
+    {
+      "rate_pct": 0.0043,
+      "timestamp_ms": 1777852800000
+    },
+    {
+      "rate_pct": 0.0086,
+      "timestamp_ms": 1777881600000
+    },
+    {
+      "rate_pct": -0.0002,
+      "timestamp_ms": 1777910400003
+    },
+    {
+      "rate_pct": -0.002,
+      "timestamp_ms": 1777939200000
+    },
+    {
+      "rate_pct": -0.0024,
+      "timestamp_ms": 1777968000011
+    },
+    {
+      "rate_pct": -0.0065,
+      "timestamp_ms": 1777996800000
+    },
+    {
+      "rate_pct": -0.002,
+      "timestamp_ms": 1778025600010
+    },
+    {
+      "rate_pct": -0.0094,
+      "timestamp_ms": 1778054400000
+    },
+    {
+      "rate_pct": -0.0051,
+      "timestamp_ms": 1778083200002
+    },
+    {
+      "rate_pct": -0.0066,
+      "timestamp_ms": 1778112000000
+    },
+    {
+      "rate_pct": -0.012,
+      "timestamp_ms": 1778140800000
+    },
+    {
+      "rate_pct": -0.0043,
+      "timestamp_ms": 1778169600004
+    },
+    {
+      "rate_pct": -0.001,
+      "timestamp_ms": 1778198400003
+    },
+    {
+      "rate_pct": -0.0028,
+      "timestamp_ms": 1778227200002
+    },
+    {
+      "rate_pct": -0.0034,
+      "timestamp_ms": 1778256000003
+    },
+    {
+      "rate_pct": 0.0062,
+      "timestamp_ms": 1778284800000
+    },
+    {
+      "rate_pct": 0.0043,
+      "timestamp_ms": 1778313600001
+    },
+    {
+      "rate_pct": 0.0088,
+      "timestamp_ms": 1778342400002
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1778371200003
+    },
+    {
+      "rate_pct": 0.0083,
+      "timestamp_ms": 1778400000000
+    },
+    {
+      "rate_pct": 0.0067,
+      "timestamp_ms": 1778428800000
+    },
+    {
+      "rate_pct": 0.0075,
+      "timestamp_ms": 1778457600000
+    },
+    {
+      "rate_pct": 0.002,
+      "timestamp_ms": 1778486400000
+    },
+    {
+      "rate_pct": 0.0034,
+      "timestamp_ms": 1778515200000
+    },
+    {
+      "rate_pct": 0.0039,
+      "timestamp_ms": 1778544000002
+    },
+    {
+      "rate_pct": 0.0007,
+      "timestamp_ms": 1778572800008
+    },
+    {
+      "rate_pct": 0.004,
+      "timestamp_ms": 1778601600000
+    },
+    {
+      "rate_pct": 0.0013,
+      "timestamp_ms": 1778630400010
+    },
+    {
+      "rate_pct": 0.005,
+      "timestamp_ms": 1778659200003
+    },
+    {
+      "rate_pct": 0.0005,
+      "timestamp_ms": 1778688000001
+    },
+    {
+      "rate_pct": 0.0059,
+      "timestamp_ms": 1778716800005
+    },
+    {
+      "rate_pct": 0.0055,
+      "timestamp_ms": 1778745600000
+    },
+    {
+      "rate_pct": 0.0039,
+      "timestamp_ms": 1778774400000
+    },
+    {
+      "rate_pct": -0.0007,
+      "timestamp_ms": 1778803200000
+    },
+    {
+      "rate_pct": 0.0004,
+      "timestamp_ms": 1778832000016
+    },
+    {
+      "rate_pct": 0.0014,
+      "timestamp_ms": 1778860800012
+    },
+    {
+      "rate_pct": 0.0071,
+      "timestamp_ms": 1778889600005
+    },
+    {
+      "rate_pct": 0.0045,
+      "timestamp_ms": 1778918400000
+    },
+    {
+      "rate_pct": 0.0065,
+      "timestamp_ms": 1778947200005
+    },
+    {
+      "rate_pct": 0.0072,
+      "timestamp_ms": 1778976000000
+    },
+    {
+      "rate_pct": 0.0049,
+      "timestamp_ms": 1779004800010
+    },
+    {
+      "rate_pct": 0.0053,
+      "timestamp_ms": 1779033600009
+    },
+    {
+      "rate_pct": 0.0019,
+      "timestamp_ms": 1779062400007
+    },
+    {
+      "rate_pct": 0.0007,
+      "timestamp_ms": 1779091200002
+    },
+    {
+      "rate_pct": 0.0052,
+      "timestamp_ms": 1779120000007
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1779148800001
+    },
+    {
+      "rate_pct": 0.0057,
+      "timestamp_ms": 1779177600001
+    },
+    {
+      "rate_pct": 0.0036,
+      "timestamp_ms": 1779206400009
+    },
+    {
+      "rate_pct": 0.0055,
+      "timestamp_ms": 1779235200001
+    },
+    {
+      "rate_pct": 0.0031,
+      "timestamp_ms": 1779264000006
+    },
+    {
+      "rate_pct": 0.0053,
+      "timestamp_ms": 1779292800000
+    },
+    {
+      "rate_pct": 0.0059,
+      "timestamp_ms": 1779321600001
+    },
+    {
+      "rate_pct": 0.0025,
+      "timestamp_ms": 1779350400000
+    },
+    {
+      "rate_pct": 0.0038,
+      "timestamp_ms": 1779379200000
+    },
+    {
+      "rate_pct": 0.0049,
+      "timestamp_ms": 1779408000000
+    },
+    {
+      "rate_pct": 0.0031,
+      "timestamp_ms": 1779436800004
+    },
+    {
+      "rate_pct": 0.0059,
+      "timestamp_ms": 1779465600001
+    },
+    {
+      "rate_pct": 0.0057,
+      "timestamp_ms": 1779494400009
+    },
+    {
+      "rate_pct": 0.0045,
+      "timestamp_ms": 1779523200001
+    },
+    {
+      "rate_pct": 0.0064,
+      "timestamp_ms": 1779552000003
+    },
+    {
+      "rate_pct": 0.008,
+      "timestamp_ms": 1779580800011
+    },
+    {
+      "rate_pct": 0.008,
+      "timestamp_ms": 1779609600008
+    },
+    {
+      "rate_pct": 0.0042,
+      "timestamp_ms": 1779638400000
+    },
+    {
+      "rate_pct": 0.0054,
+      "timestamp_ms": 1779667200001
+    },
+    {
+      "rate_pct": 0.0055,
+      "timestamp_ms": 1779696000001
+    },
+    {
+      "rate_pct": 0.0032,
+      "timestamp_ms": 1779724800001
+    },
+    {
+      "rate_pct": 0.0035,
+      "timestamp_ms": 1779753600000
+    },
+    {
+      "rate_pct": 0.0038,
+      "timestamp_ms": 1779782400003
+    },
+    {
+      "rate_pct": 0.0034,
+      "timestamp_ms": 1779811200000
+    },
+    {
+      "rate_pct": 0.0074,
+      "timestamp_ms": 1779840000000
+    },
+    {
+      "rate_pct": 0.0031,
+      "timestamp_ms": 1779868800004
+    },
+    {
+      "rate_pct": 0.0061,
+      "timestamp_ms": 1779897600009
+    },
+    {
+      "rate_pct": 0.0024,
+      "timestamp_ms": 1779926400001
+    },
+    {
+      "rate_pct": 0.0025,
+      "timestamp_ms": 1779955200000
+    },
+    {
+      "rate_pct": 0.003,
+      "timestamp_ms": 1779984000001
+    },
+    {
+      "rate_pct": 0.0086,
+      "timestamp_ms": 1780012800000
+    },
+    {
+      "rate_pct": 0.007,
+      "timestamp_ms": 1780041600001
+    },
+    {
+      "rate_pct": 0.0066,
+      "timestamp_ms": 1780070400008
+    },
+    {
+      "rate_pct": 0.0045,
+      "timestamp_ms": 1780099200000
+    },
+    {
+      "rate_pct": 0.0068,
+      "timestamp_ms": 1780128000001
+    },
+    {
+      "rate_pct": 0.0057,
+      "timestamp_ms": 1780156800000
+    },
+    {
+      "rate_pct": 0.0094,
+      "timestamp_ms": 1780185600000
+    },
+    {
+      "rate_pct": 0.0072,
+      "timestamp_ms": 1780214400000
+    },
+    {
+      "rate_pct": 0.0017,
+      "timestamp_ms": 1780243200004
+    },
+    {
+      "rate_pct": 0.0064,
+      "timestamp_ms": 1780272000001
+    },
+    {
+      "rate_pct": 0.0053,
+      "timestamp_ms": 1780300800001
+    },
+    {
+      "rate_pct": 0.0096,
+      "timestamp_ms": 1780329600000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1780358400000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1780387200000
+    },
+    {
+      "rate_pct": 0.0057,
+      "timestamp_ms": 1780416000000
+    },
+    {
+      "rate_pct": 0.002,
+      "timestamp_ms": 1780444800013
+    },
+    {
+      "rate_pct": 0.0099,
+      "timestamp_ms": 1780473600000
+    },
+    {
+      "rate_pct": 0.0074,
+      "timestamp_ms": 1780502400001
+    },
+    {
+      "rate_pct": 0.0077,
+      "timestamp_ms": 1780531200009
+    },
+    {
+      "rate_pct": 0.0045,
+      "timestamp_ms": 1780560000000
+    },
+    {
+      "rate_pct": 0.0039,
+      "timestamp_ms": 1780588800003
+    },
+    {
+      "rate_pct": 0.0047,
+      "timestamp_ms": 1780617600000
+    },
+    {
+      "rate_pct": -0.0031,
+      "timestamp_ms": 1780646400004
+    },
+    {
+      "rate_pct": -0.0074,
+      "timestamp_ms": 1780675200009
+    },
+    {
+      "rate_pct": -0.0079,
+      "timestamp_ms": 1780704000000
+    },
+    {
+      "rate_pct": -0.0032,
+      "timestamp_ms": 1780732800000
+    },
+    {
+      "rate_pct": -0.0035,
+      "timestamp_ms": 1780761600000
+    },
+    {
+      "rate_pct": -0.0066,
+      "timestamp_ms": 1780790400001
+    },
+    {
+      "rate_pct": -0.0102,
+      "timestamp_ms": 1780819200000
+    },
+    {
+      "rate_pct": 0.0005,
+      "timestamp_ms": 1780848000000
+    },
+    {
+      "rate_pct": -0.0082,
+      "timestamp_ms": 1780876800000
+    },
+    {
+      "rate_pct": -0.0066,
+      "timestamp_ms": 1780905600005
+    },
+    {
+      "rate_pct": -0.0045,
+      "timestamp_ms": 1780934400004
+    },
+    {
+      "rate_pct": -0.0045,
+      "timestamp_ms": 1780963200000
+    },
+    {
+      "rate_pct": 0.0,
+      "timestamp_ms": 1780992000000
+    }
+  ]
+}

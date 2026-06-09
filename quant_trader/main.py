@@ -55,6 +55,8 @@ class Engine:
         self._klines_cache: dict[tuple[str, str], list[dict]] = {}  # (symbol, timeframe) → 最近 K 线
         self._last_signal_time: dict[str, float] = {}  # symbol → 最后处理信号的时间戳（epoch秒）
         self._signal_cooldown = 300                      # 同币种最短信号间隔（秒）
+        self._funding_rate_cache: dict[str, tuple[float, float]] = {}  # symbol → (rate_pct, timestamp)
+        self._FUNDING_RATE_TTL = 60                      # funding rate 缓存有效期（秒）
 
     def initialize(self):
         """初始化：加载配置、连接数据库和交易所。"""
@@ -113,6 +115,33 @@ class Engine:
         """检测 .pause 文件是否存在（紧急暂停机制）。"""
         pause_file = Path(__file__).parent.parent / ".pause"
         return pause_file.exists()
+
+    async def _get_funding_rate(self, symbol: str) -> float | None:
+        """获取当前资金费率（带缓存）。
+
+        返回:
+            funding rate（百分比），如 0.05 表示 +0.05%；
+            API 失败或数据无效时返回 None。
+        """
+        now = _time.time()
+        cached = self._funding_rate_cache.get(symbol)
+        if cached and (now - cached[1]) < self._FUNDING_RATE_TTL:
+            return cached[0]
+
+        if self.exchange is None:
+            return None
+
+        try:
+            result = await self.exchange.fetch_funding_rate(symbol)
+            if result and "fundingRate" in result:
+                rate = float(result["fundingRate"]) * 100  # 转为百分比
+                self._funding_rate_cache[symbol] = (rate, now)
+                logger.debug("Funding rate %s: %.4f%%", symbol, rate)
+                return rate
+        except Exception:
+            logger.warning("获取 funding rate 失败 %s", symbol, exc_info=True)
+
+        return None
 
     async def run(self):
         """启动引擎，并行运行所有策略周期。"""
@@ -184,9 +213,12 @@ class Engine:
                     # 获取上级周期 K 线（多周期趋势确认）
                     parent_tf = PARENT_TIMEFRAME.get(timeframe)
                     parent_klines = self._klines_cache.get((symbol, parent_tf)) if parent_tf else None
+                    # 获取当前 funding rate（带缓存）
+                    funding_rate = await self._get_funding_rate(symbol)
                     signals = strategy.on_bar(symbol, timeframe, klines,
                                               self.paper_engine.positions.values(),
-                                              parent_klines=parent_klines)
+                                              parent_klines=parent_klines,
+                                              funding_rate=funding_rate)
                     now = _time.time()
                     for signal in signals:
                         last = self._last_signal_time.get(signal.symbol, 0)
