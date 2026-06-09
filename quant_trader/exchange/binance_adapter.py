@@ -50,9 +50,11 @@ class BinanceAdapter(ExchangeAdapter):
 
     def connect(self):
         """初始化交易所实例。"""
+        # ccxt 中 "swap" 不是标准 defaultType，U 本位合约应使用 "future"
+        ccxt_type = "future" if self.default_type == "swap" else self.default_type
         config = {
             "enableRateLimit": True,
-            "options": {"defaultType": self.default_type},
+            "options": {"defaultType": ccxt_type},
         }
         if self.api_key and self.api_secret:
             config["apiKey"] = self.api_key
