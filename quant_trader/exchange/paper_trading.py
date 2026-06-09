@@ -42,6 +42,7 @@ class MockPosition:
     entry_time: datetime = field(default_factory=lambda: datetime.now(tz=timezone.utc))
     unrealized_pnl: float = 0.0
     realized_pnl: float = 0.0
+    add_count: int = 0
 
 
 class PaperTradingEngine:
@@ -381,6 +382,7 @@ class PaperTradingEngine:
             avg_price = (existing.entry_price * existing.quantity + order.price * order.amount) / total_qty
             existing.entry_price = avg_price
             existing.quantity = total_qty
+            existing.add_count += 1
             # 同步到数据库
             if data_store:
                 data_store.update_position(

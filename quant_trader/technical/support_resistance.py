@@ -195,15 +195,19 @@ def check_volume_surge(klines: list[dict], lookback: int = 20, surge_ratio: floa
     return ratio >= surge_ratio, ratio
 
 
-def check_rejection_candle(kline: dict, level_type: str) -> bool:
+def check_rejection_candle(kline: dict, level_type: str,
+                            min_wick_ratio: float = 2.0,
+                            max_body_ratio: float = 0.5) -> bool:
     """检查单根 K 线是否为拒绝蜡烛。
 
-    多头：在支撑位附近出现长下影线（下影 ≥ 实体2倍）+ 收盘价 > 开盘
-    空头：在压力位附近出现长上影线（上影 ≥ 实体2倍）+ 收盘价 < 开盘
+    多头：在支撑位附近出现长下影线 + 收盘价 > 开盘
+    空头：在压力位附近出现长上影线 + 收盘价 < 开盘
 
     参数:
         kline: 单根 K 线数据
         level_type: "support" 或 "resistance"
+        min_wick_ratio: 影线相对于实体的最小倍数
+        max_body_ratio: 实体占波幅的最大比例（小实体要求）
 
     返回:
         是否为拒绝蜡烛
@@ -214,18 +218,25 @@ def check_rejection_candle(kline: dict, level_type: str) -> bool:
     close = kline["close"]
 
     body = abs(close - open_p)
+    range_size = high - low
+
+    if range_size == 0:
+        return False
+
+    # 小实体检查
+    if body / range_size > max_body_ratio:
+        return False
+
     if body == 0:
         return False
 
     if level_type == "support":
-        # 多头拒绝：长下影线 + 收阳
         lower_shadow = min(open_p, close) - low
-        if lower_shadow >= body * 2 and close > open_p:
+        if lower_shadow / body >= min_wick_ratio and close > open_p:
             return True
     elif level_type == "resistance":
-        # 空头拒绝：长上影线 + 收阴
         upper_shadow = high - max(open_p, close)
-        if upper_shadow >= body * 2 and close < open_p:
+        if upper_shadow / body >= min_wick_ratio and close < open_p:
             return True
 
     return False
@@ -356,7 +367,9 @@ def identify_support_resistance(klines: list[dict], min_touches: float = 2.0,
                                 swing_window_strong: int = 3,
                                 swing_window_weak: int = 2,
                                 use_order_blocks: bool = False,
-                                use_fvg: bool = False) -> dict:
+                                use_fvg: bool = False,
+                                rejection_min_wick_ratio: float = 2.0,
+                                rejection_max_body_ratio: float = 0.5) -> dict:
     """完整的支撑/压力位分析（含质量加权评分 + 趋势一致性 + 新鲜度）。
 
     结合波段高低点聚类、Order Block、FVG、成交量分布、成交量爆发、
@@ -524,24 +537,29 @@ def identify_support_resistance(klines: list[dict], min_touches: float = 2.0,
             # 最终质量分数 = 基础分 + 趋势一致性 + 新鲜度
             quality_score = base_score + trend_bonus + recency_bonus
 
-            # 拒绝蜡烛检查（取最新 5 根 K 线中最近的一次）
-            # 注意：klines 为新→旧顺序，index 0 为最新
+            # 拒绝蜡烛检查（仅启用时计算）
             has_rejection = False
-            if len(klines) >= 5:
+            if require_rejection and len(klines) >= 5:
                 for k in klines[:5]:
-                    # 检查 K 线是否在该价位附近形成拒绝蜡烛
                     if level_type == "support":
                         if abs(k["low"] - price) / price < 0.005:
-                            has_rejection = check_rejection_candle(k, "support")
+                            has_rejection = check_rejection_candle(
+                                k, "support",
+                                min_wick_ratio=rejection_min_wick_ratio,
+                                max_body_ratio=rejection_max_body_ratio,
+                            )
                     else:
                         if abs(k["high"] - price) / price < 0.005:
-                            has_rejection = check_rejection_candle(k, "resistance")
+                            has_rejection = check_rejection_candle(
+                                k, "resistance",
+                                min_wick_ratio=rejection_min_wick_ratio,
+                                max_body_ratio=rejection_max_body_ratio,
+                            )
                     if has_rejection:
                         break
 
-            # 如果要求拒绝蜡烛确认但未找到，大幅降低质量分数
-            if require_rejection and not has_rejection:
-                quality_score *= 0.3
+                if not has_rejection:
+                    quality_score *= 0.3
 
             enriched.append({
                 "price": price,

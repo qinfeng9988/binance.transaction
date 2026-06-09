@@ -527,20 +527,30 @@ def compute_dynamic_stop_loss(
     return entry_price + atr_distance
 
 
+def _get_pos_attr(pos, key, default=None):
+    """统一读取持仓属性，支持 dict 和 dataclass 对象。"""
+    if pos is None:
+        return default
+    if isinstance(pos, dict):
+        return pos.get(key, default)
+    return getattr(pos, key, default)
+
+
 class SupportResistanceStrategy(BaseStrategy):
     """基于支撑/压力位的交易策略 v1.1.0，带多周期趋势确认与多维度质量过滤。"""
 
     def on_bar(self, symbol: str, timeframe: str, klines: list[dict],
                positions: list, parent_klines: list[dict] | None = None,
-               grandparent_klines: list[dict] | None = None) -> list[Signal]:
+               grandparent_klines: list[dict] | None = None,
+               confirm_klines: list[dict] | None = None) -> list[Signal]:
         if len(klines) < 50:
             return []
 
         # 惰性初始化累计过滤统计（用于回测结束后的汇总分析）
         if not hasattr(self, "_filter_summary"):
             self._filter_summary = {
-                "buy": {"checked": 0, "distance": 0, "adx": 0, "di": 0, "quality": 0, "ema": 0, "rsi": 0, "volume": 0, "rejection": 0, "pullback": 0, "add": 0, "passed": 0},
-                "sell": {"checked": 0, "distance": 0, "adx": 0, "di": 0, "quality": 0, "ema": 0, "rsi": 0, "volume": 0, "rejection": 0, "pullback": 0, "add": 0, "passed": 0},
+                "buy": {"checked": 0, "distance": 0, "adx": 0, "di": 0, "quality": 0, "ema": 0, "rsi": 0, "volume": 0, "rejection": 0, "pullback": 0, "add": 0, "add_limit": 0, "add_quality": 0, "passed": 0},
+                "sell": {"checked": 0, "distance": 0, "adx": 0, "di": 0, "quality": 0, "ema": 0, "rsi": 0, "volume": 0, "rejection": 0, "pullback": 0, "add": 0, "add_limit": 0, "add_quality": 0, "passed": 0},
             }
 
         params = self.params
@@ -552,6 +562,8 @@ class SupportResistanceStrategy(BaseStrategy):
         secondary_min_touches = params.get("secondary_min_touches", 4)
         secondary_entry_threshold_pct = params.get("secondary_entry_threshold_pct", 0.3)
         require_rejection = params.get("require_rejection_candle", False)
+        rejection_min_wick_ratio = params.get("rejection_min_wick_ratio", 2.0)
+        rejection_max_body_ratio = params.get("rejection_max_body_ratio", 0.5)
         trend_bonus_aligned = params.get("trend_bonus_aligned", 1.3)
         trend_bonus_counter = params.get("trend_bonus_counter", -0.5)
 
@@ -623,7 +635,27 @@ class SupportResistanceStrategy(BaseStrategy):
         use_fvg = params.get("use_fvg", False)
 
         leverage = params.get("leverage", 1)
+        ranging_leverage_multiplier = params.get("ranging_leverage_multiplier", 1.0)
+        ranging_atr_multiplier = params.get("ranging_atr_multiplier", None)
         current_price = klines[0]["close"]
+
+        # ---- 多周期共振参数 ----
+        use_resonance = params.get("use_resonance", False)
+        resonance_timeframe = params.get("resonance_timeframe", "15m")
+        resonance_ema_fast = params.get("resonance_ema_fast_period", 9)
+        resonance_ema_slow = params.get("resonance_ema_slow_period", 21)
+        resonance_ema_gap = params.get("resonance_ema_gap_threshold_pct", 0.5)
+        resonance_sr_threshold_pct = params.get("resonance_sr_threshold_pct", 2.0)
+        resonance_min_touches = params.get("resonance_min_touches", 3)
+        resonance_lookback = params.get("resonance_lookback", 100)
+
+        # ---- 加仓控制参数 ----
+        max_additions_ranging = params.get("max_additions_ranging", 1)
+        max_additions_trending = params.get("max_additions_trending", 1)
+        add_quality_tier2 = params.get("add_quality_tier2", 6.0)
+
+        # ---- 强趋势逆势过滤 ----
+        strict_bias_mode = params.get("strict_bias_mode", False)
 
         # ========== 1. 多周期趋势确认 ==========
         trend_info = detect_trend_with_parent(
@@ -673,6 +705,46 @@ class SupportResistanceStrategy(BaseStrategy):
             )
             return []
 
+        # ========== 2c. 震荡期仓位控制（v1.4.1+：增强上级周期锚定）==========
+        use_parent_trend_override = params.get("use_parent_trend_override", False)
+        ranging_adx_relax_factor = params.get("ranging_adx_relax_factor", 1.0)
+
+        if use_parent_trend_override and parent_trend in ("uptrend", "downtrend"):
+            # 上级周期有明确趋势：放宽当前周期的 ranging 判定
+            # 只有当前ADX < 放宽阈值 AND 自身trend=ranging 时才视为震荡
+            effective_adx_min = adx_min * ranging_adx_relax_factor
+            is_ranging = (current_adx < effective_adx_min) and (trend == "ranging")
+            if not is_ranging and (current_adx < adx_min or trend == "ranging"):
+                logger.debug(
+                    "趋势锚定 %s %s: parent=%s, 自身ADX=%.1f/trend=%s, "
+                    "放宽后不计为震荡(eff_adx_min=%.1f)",
+                    symbol, timeframe, parent_trend, current_adx, trend,
+                    effective_adx_min,
+                )
+        else:
+            # 原逻辑：上级也是ranging或无parent时，使用严格判定
+            is_ranging = (current_adx < adx_min) or (trend == "ranging")
+
+        original_leverage = leverage
+        if is_ranging and ranging_leverage_multiplier < 1.0:
+            leverage = round(leverage * ranging_leverage_multiplier)
+            if leverage < 1:
+                leverage = 1
+            logger.info(
+                "震荡期降仓 %s %s: ADX=%.1f, trend=%s, 杠杆 %dx → %dx (x%.2f)",
+                symbol, timeframe, current_adx, trend,
+                original_leverage, leverage, ranging_leverage_multiplier,
+            )
+
+        # 震荡期止损收紧
+        effective_atr_multiplier = atr_multiplier
+        if is_ranging and ranging_atr_multiplier is not None:
+            effective_atr_multiplier = ranging_atr_multiplier
+            logger.info(
+                "震荡期收紧止损 %s %s: ATR倍数 %.1f → %.1f",
+                symbol, timeframe, atr_multiplier, effective_atr_multiplier,
+            )
+
         # ========== 3. 识别高质量 S/R 位 ==========
         levels = identify_support_resistance(
             klines,
@@ -689,6 +761,8 @@ class SupportResistanceStrategy(BaseStrategy):
             swing_window_weak=swing_window_weak,
             use_order_blocks=use_order_blocks,
             use_fvg=use_fvg,
+            rejection_min_wick_ratio=rejection_min_wick_ratio,
+            rejection_max_body_ratio=rejection_max_body_ratio,
         )
 
         # ========== 4. 确定交易方向与主次 ==========
@@ -711,23 +785,108 @@ class SupportResistanceStrategy(BaseStrategy):
             can_buy, buy_is_primary = True, True
             can_sell, sell_is_primary = True, True
 
+        # ---- strict_bias_mode: 上级明确趋势 + 当前ADX较强时，禁止逆势交易 ----
+        if strict_bias_mode and parent_trend in ("uptrend", "downtrend") and current_adx >= adx_min:
+            if bias in ("long_only", "long_primary"):
+                if can_sell:
+                    logger.info(
+                        "strict_bias 过滤 %s %s: parent=%s, ADX=%.1f, bias=%s, 禁止逆势做空",
+                        symbol, timeframe, parent_trend, current_adx, bias,
+                    )
+                can_sell = False
+                sell_is_primary = False
+            elif bias in ("short_only", "short_primary"):
+                if can_buy:
+                    logger.info(
+                        "strict_bias 过滤 %s %s: parent=%s, ADX=%.1f, bias=%s, 禁止逆势做多",
+                        symbol, timeframe, parent_trend, current_adx, bias,
+                    )
+                can_buy = False
+                buy_is_primary = False
+
+        # ========== 4b. 多周期共振确认（可选）==========
+        if use_resonance and confirm_klines and len(confirm_klines) >= 50:
+            # 检测确认周期趋势
+            confirm_trend_info = detect_trend(
+                confirm_klines,
+                threshold_pct=resonance_ema_gap,
+                fast_period=resonance_ema_fast,
+                slow_period=resonance_ema_slow,
+            )
+            confirm_trend = confirm_trend_info["trend"]
+
+            # 检测确认周期 S/R 位
+            confirm_levels = identify_support_resistance(
+                confirm_klines,
+                min_touches=resonance_min_touches,
+                lookback=resonance_lookback,
+                volume_surge_ratio=1.5,
+                require_rejection=False,
+                bias=bias,
+                trend_bonus_aligned=trend_bonus_aligned,
+                trend_bonus_counter=trend_bonus_counter,
+                adaptive_swing_window=adaptive_swing_window,
+                swing_window_adx_threshold=swing_window_adx_threshold,
+                swing_window_strong=swing_window_strong,
+                swing_window_weak=swing_window_weak,
+                use_order_blocks=use_order_blocks,
+                use_fvg=use_fvg,
+                rejection_min_wick_ratio=rejection_min_wick_ratio,
+                rejection_max_body_ratio=rejection_max_body_ratio,
+            )
+
+            # 检查当前价格是否靠近确认周期的 S/R 位
+            resonance_buy_ok = False
+            resonance_sell_ok = False
+
+            for support in confirm_levels["support"]:
+                s_price = support["price"]
+                distance_pct = (current_price - s_price) / s_price * 100
+                if 0 <= distance_pct <= resonance_sr_threshold_pct:
+                    resonance_buy_ok = True
+                    break
+
+            for resistance in confirm_levels["resistance"]:
+                r_price = resistance["price"]
+                distance_pct = (r_price - current_price) / r_price * 100
+                if 0 <= distance_pct <= resonance_sr_threshold_pct:
+                    resonance_sell_ok = True
+                    break
+
+            # 趋势同向 + 靠近 S/R 位
+            if can_buy and confirm_trend not in ("uptrend", "long_primary", "long_only", "neutral"):
+                resonance_buy_ok = False
+            if can_sell and confirm_trend not in ("downtrend", "short_primary", "short_only", "neutral"):
+                resonance_sell_ok = False
+
+            if not resonance_buy_ok:
+                can_buy = False
+            if not resonance_sell_ok:
+                can_sell = False
+
+            logger.debug(
+                "共振确认 %s %s: confirm_trend=%s, buy_ok=%s, sell_ok=%s",
+                symbol, timeframe, confirm_trend, resonance_buy_ok, resonance_sell_ok,
+            )
+
         signals = []
 
         # 过滤统计（用于诊断分析：每个 K 线周期记录各过滤层的拦截数）
         filter_stats = {
-            "buy": {"checked": 0, "distance": 0, "adx": 0, "di": 0, "quality": 0, "ema": 0, "rsi": 0, "volume": 0, "rejection": 0, "pullback": 0, "add": 0, "passed": 0},
-            "sell": {"checked": 0, "distance": 0, "adx": 0, "di": 0, "quality": 0, "ema": 0, "rsi": 0, "volume": 0, "rejection": 0, "pullback": 0, "add": 0, "passed": 0},
+            "buy": {"checked": 0, "distance": 0, "adx": 0, "di": 0, "quality": 0, "ema": 0, "rsi": 0, "volume": 0, "rejection": 0, "pullback": 0, "add": 0, "add_limit": 0, "add_quality": 0, "passed": 0},
+            "sell": {"checked": 0, "distance": 0, "adx": 0, "di": 0, "quality": 0, "ema": 0, "rsi": 0, "volume": 0, "rejection": 0, "pullback": 0, "add": 0, "add_limit": 0, "add_quality": 0, "passed": 0},
         }
 
-        # 查找当前 symbol 的现有持仓
+        # 查找当前 symbol 的现有持仓（支持 dict 和 dataclass）
         existing_pos = None
         for pos in positions:
-            if isinstance(pos, dict) and pos.get("symbol") == symbol:
+            if _get_pos_attr(pos, "symbol") == symbol:
                 existing_pos = pos
                 break
 
         # ========== 5. 做多信号 ==========
-        if can_buy:
+        # strict_bias_mode 只拦截逆势新开仓，但允许反向平仓
+        if can_buy or (existing_pos and _get_pos_attr(existing_pos, "side") == "sell"):
             touches = min_touches if buy_is_primary else secondary_min_touches
             threshold = entry_threshold_pct if buy_is_primary else secondary_entry_threshold_pct
 
@@ -746,6 +905,8 @@ class SupportResistanceStrategy(BaseStrategy):
                 swing_window_weak=swing_window_weak,
                 use_order_blocks=use_order_blocks,
                 use_fvg=use_fvg,
+                rejection_min_wick_ratio=rejection_min_wick_ratio,
+                rejection_max_body_ratio=rejection_max_body_ratio,
             )
 
             for support in buy_levels["support"]:
@@ -847,7 +1008,11 @@ class SupportResistanceStrategy(BaseStrategy):
                 # --- 5d. 拒绝蜡烛确认（已在 S/R 检测中处理，此处可额外检查当前 K 线） ---
                 if require_rejection and not support.get("has_rejection", False):
                     # 额外检查当前 K 线
-                    if not check_rejection_candle(klines[0], "support"):
+                    if not check_rejection_candle(
+                        klines[0], "support",
+                        min_wick_ratio=rejection_min_wick_ratio,
+                        max_body_ratio=rejection_max_body_ratio,
+                    ):
                         filter_stats["buy"]["rejection"] += 1
                         logger.debug(
                             "拒绝蜡烛过滤 %s %s 做多: 无拒绝蜡烛, "
@@ -874,14 +1039,15 @@ class SupportResistanceStrategy(BaseStrategy):
                 if use_atr_stop:
                     stop_loss = compute_dynamic_stop_loss(
                         klines, current_price, is_long=True,
-                        atr_period=atr_period, atr_multiplier=atr_multiplier,
+                        atr_period=atr_period, atr_multiplier=effective_atr_multiplier,
                         fallback_pct=fallback_stop_pct,
                     )
                 else:
                     stop_loss = s_price * (1 - fallback_stop_pct / 100)
 
                 # --- 加仓条件检查 ---
-                if existing_pos and existing_pos.get("side") == "buy":
+                if existing_pos and _get_pos_attr(existing_pos, "side") == "buy":
+                    # 基础质量门槛（第1次加仓）
                     if quality_score < 6.5:
                         filter_stats["buy"]["add"] += 1
                         logger.debug(
@@ -889,11 +1055,35 @@ class SupportResistanceStrategy(BaseStrategy):
                             symbol, timeframe, quality_score,
                         )
                         continue
-                    if current_price >= existing_pos.get("entry_price", current_price):
+                    # 价格必须优于持仓价（震荡期严格要求，趋势期可放宽追仓）
+                    trend_addition_allow_chase = params.get("trend_addition_allow_chase", False)
+                    if trend_addition_allow_chase and not is_ranging:
+                        # 趋势期允许追多：跳过价格条件
+                        pass
+                    elif current_price >= _get_pos_attr(existing_pos, "entry_price", current_price):
                         filter_stats["buy"]["add"] += 1
                         logger.debug(
                             "加仓过滤 %s %s 做多: 价格=%.2f 不优于持仓价=%.2f",
-                            symbol, timeframe, current_price, existing_pos.get("entry_price"),
+                            symbol, timeframe, current_price, _get_pos_attr(existing_pos, "entry_price"),
+                        )
+                        continue
+                    # 加仓次数上限（震荡期 vs 趋势期）
+                    add_count = _get_pos_attr(existing_pos, "add_count", 0)
+                    max_add = max_additions_ranging if is_ranging else max_additions_trending
+                    if add_count >= max_add:
+                        filter_stats["buy"]["add_limit"] += 1
+                        logger.debug(
+                            "加仓过滤 %s %s 做多: 已达最大次数 %d/%d (%s)",
+                            symbol, timeframe, add_count, max_add,
+                            "震荡" if is_ranging else "趋势",
+                        )
+                        continue
+                    # 第2次及以上加仓额外质量门槛
+                    if add_count >= 1 and quality_score < add_quality_tier2:
+                        filter_stats["buy"]["add_quality"] += 1
+                        logger.debug(
+                            "加仓过滤 %s %s 做多: 第%d次加仓质量=%.1f < %.1f",
+                            symbol, timeframe, add_count + 1, quality_score, add_quality_tier2,
                         )
                         continue
 
@@ -929,6 +1119,9 @@ class SupportResistanceStrategy(BaseStrategy):
                         "volume_ratio": round(vol_ratio, 2),
                         "has_rejection": support.get("has_rejection", False),
                         "stop_loss_type": "atr" if use_atr_stop else "fixed",
+                        "max_additions": max_additions_ranging if is_ranging else max_additions_trending,
+                        "add_count": _get_pos_attr(existing_pos, "add_count", 0) if existing_pos else 0,
+                        "is_ranging": is_ranging,
                     },
                 )
                 signals.append(signal)
@@ -948,7 +1141,8 @@ class SupportResistanceStrategy(BaseStrategy):
                 break  # 只取最近的一个支撑
 
         # ========== 6. 做空信号 ==========
-        if can_sell:
+        # strict_bias_mode 只拦截逆势新开仓，但允许反向平仓
+        if can_sell or (existing_pos and _get_pos_attr(existing_pos, "side") == "buy"):
             touches = min_touches if sell_is_primary else secondary_min_touches
             threshold = entry_threshold_pct if sell_is_primary else secondary_entry_threshold_pct
 
@@ -967,6 +1161,8 @@ class SupportResistanceStrategy(BaseStrategy):
                 swing_window_weak=swing_window_weak,
                 use_order_blocks=use_order_blocks,
                 use_fvg=use_fvg,
+                rejection_min_wick_ratio=rejection_min_wick_ratio,
+                rejection_max_body_ratio=rejection_max_body_ratio,
             )
 
             for resistance in sell_levels["resistance"]:
@@ -1067,7 +1263,11 @@ class SupportResistanceStrategy(BaseStrategy):
 
                 # --- 6d. 拒绝蜡烛确认 ---
                 if require_rejection and not resistance.get("has_rejection", False):
-                    if not check_rejection_candle(klines[0], "resistance"):
+                    if not check_rejection_candle(
+                        klines[0], "resistance",
+                        min_wick_ratio=rejection_min_wick_ratio,
+                        max_body_ratio=rejection_max_body_ratio,
+                    ):
                         filter_stats["sell"]["rejection"] += 1
                         logger.debug(
                             "拒绝蜡烛过滤 %s %s 做空: 无拒绝蜡烛, "
@@ -1094,14 +1294,15 @@ class SupportResistanceStrategy(BaseStrategy):
                 if use_atr_stop:
                     stop_loss = compute_dynamic_stop_loss(
                         klines, current_price, is_long=False,
-                        atr_period=atr_period, atr_multiplier=atr_multiplier,
+                        atr_period=atr_period, atr_multiplier=effective_atr_multiplier,
                         fallback_pct=fallback_stop_pct,
                     )
                 else:
                     stop_loss = r_price * (1 + fallback_stop_pct / 100)
 
                 # --- 加仓条件检查 ---
-                if existing_pos and existing_pos.get("side") == "sell":
+                if existing_pos and _get_pos_attr(existing_pos, "side") == "sell":
+                    # 基础质量门槛（第1次加仓）
                     if quality_score < 6.5:
                         filter_stats["sell"]["add"] += 1
                         logger.debug(
@@ -1109,11 +1310,35 @@ class SupportResistanceStrategy(BaseStrategy):
                             symbol, timeframe, quality_score,
                         )
                         continue
-                    if current_price <= existing_pos.get("entry_price", current_price):
+                    # 价格必须优于持仓价（震荡期严格要求，趋势期可放宽追仓）
+                    trend_addition_allow_chase = params.get("trend_addition_allow_chase", False)
+                    if trend_addition_allow_chase and not is_ranging:
+                        # 趋势期允许追空：跳过价格条件
+                        pass
+                    elif current_price <= _get_pos_attr(existing_pos, "entry_price", current_price):
                         filter_stats["sell"]["add"] += 1
                         logger.debug(
                             "加仓过滤 %s %s 做空: 价格=%.2f 不优于持仓价=%.2f",
-                            symbol, timeframe, current_price, existing_pos.get("entry_price"),
+                            symbol, timeframe, current_price, _get_pos_attr(existing_pos, "entry_price"),
+                        )
+                        continue
+                    # 加仓次数上限（震荡期 vs 趋势期）
+                    add_count = _get_pos_attr(existing_pos, "add_count", 0)
+                    max_add = max_additions_ranging if is_ranging else max_additions_trending
+                    if add_count >= max_add:
+                        filter_stats["sell"]["add_limit"] += 1
+                        logger.debug(
+                            "加仓过滤 %s %s 做空: 已达最大次数 %d/%d (%s)",
+                            symbol, timeframe, add_count, max_add,
+                            "震荡" if is_ranging else "趋势",
+                        )
+                        continue
+                    # 第2次及以上加仓额外质量门槛
+                    if add_count >= 1 and quality_score < add_quality_tier2:
+                        filter_stats["sell"]["add_quality"] += 1
+                        logger.debug(
+                            "加仓过滤 %s %s 做空: 第%d次加仓质量=%.1f < %.1f",
+                            symbol, timeframe, add_count + 1, quality_score, add_quality_tier2,
                         )
                         continue
 
@@ -1149,6 +1374,9 @@ class SupportResistanceStrategy(BaseStrategy):
                         "volume_ratio": round(vol_ratio, 2),
                         "has_rejection": resistance.get("has_rejection", False),
                         "stop_loss_type": "atr" if use_atr_stop else "fixed",
+                        "max_additions": max_additions_ranging if is_ranging else max_additions_trending,
+                        "add_count": _get_pos_attr(existing_pos, "add_count", 0) if existing_pos else 0,
+                        "is_ranging": is_ranging,
                     },
                 )
                 signals.append(signal)
@@ -1169,10 +1397,10 @@ class SupportResistanceStrategy(BaseStrategy):
 
         # ========== 6.5 结构化止损更新 + 部分止盈 ==========
         if existing_pos and current_atr > 0:
-            is_long = existing_pos.get("side") == "buy"
-            entry = existing_pos.get("entry_price", 0)
-            current_stop = existing_pos.get("stop_loss", 0)
-            pos_quality = existing_pos.get("quality_score", 0.0)
+            is_long = _get_pos_attr(existing_pos, "side") == "buy"
+            entry = _get_pos_attr(existing_pos, "entry_price", 0)
+            current_stop = _get_pos_attr(existing_pos, "stop_loss", 0)
+            pos_quality = _get_pos_attr(existing_pos, "quality_score", 0.0)
 
             # --- 结构化止损（优先于固定 trailing） ---
             if structured_stop_enabled:
@@ -1191,6 +1419,8 @@ class SupportResistanceStrategy(BaseStrategy):
                     swing_window_weak=swing_window_weak,
                     use_order_blocks=use_order_blocks,
                     use_fvg=use_fvg,
+                    rejection_min_wick_ratio=rejection_min_wick_ratio,
+                    rejection_max_body_ratio=rejection_max_body_ratio,
                 )
                 all_levels = struct_levels["support"] + struct_levels["resistance"]
 
@@ -1262,7 +1492,7 @@ class SupportResistanceStrategy(BaseStrategy):
             if partial_tp_enabled:
                 profit = current_price - entry if is_long else entry - current_price
                 profit_r = profit / current_atr
-                triggered = set(existing_pos.get("partial_tp_triggered", []))
+                triggered = set(_get_pos_attr(existing_pos, "partial_tp_triggered", []))
 
                 for tp_level in partial_tp_levels:
                     r_thresh = tp_level["r_threshold"]
@@ -1293,11 +1523,13 @@ class SupportResistanceStrategy(BaseStrategy):
             if stats["checked"] > 0:
                 logger.info(
                     "[FILTER] %s %s %s: checked=%d distance=%d adx=%d di=%d "
-                    "quality=%d ema=%d rsi=%d volume=%d rejection=%d pullback=%d add=%d passed=%d",
+                    "quality=%d ema=%d rsi=%d volume=%d rejection=%d pullback=%d "
+                    "add=%d add_limit=%d add_quality=%d passed=%d",
                     symbol, timeframe, direction,
                     stats["checked"], stats["distance"], stats["adx"], stats["di"],
                     stats["quality"], stats["ema"], stats["rsi"], stats["volume"],
-                    stats["rejection"], stats["pullback"], stats["add"], stats["passed"],
+                    stats["rejection"], stats["pullback"], stats["add"],
+                    stats["add_limit"], stats["add_quality"], stats["passed"],
                 )
                 # 累加到实例级累计统计
                 cum = self._filter_summary[direction]
@@ -1309,6 +1541,6 @@ class SupportResistanceStrategy(BaseStrategy):
     def get_filter_summary(self) -> dict:
         """返回整个回测/实盘期间的累计过滤统计。"""
         return getattr(self, "_filter_summary", {
-            "buy": {"checked": 0, "distance": 0, "adx": 0, "di": 0, "quality": 0, "ema": 0, "rsi": 0, "volume": 0, "rejection": 0, "pullback": 0, "add": 0, "passed": 0},
-            "sell": {"checked": 0, "distance": 0, "adx": 0, "di": 0, "quality": 0, "ema": 0, "rsi": 0, "volume": 0, "rejection": 0, "pullback": 0, "add": 0, "passed": 0},
+            "buy": {"checked": 0, "distance": 0, "adx": 0, "di": 0, "quality": 0, "ema": 0, "rsi": 0, "volume": 0, "rejection": 0, "pullback": 0, "add": 0, "add_limit": 0, "add_quality": 0, "passed": 0},
+            "sell": {"checked": 0, "distance": 0, "adx": 0, "di": 0, "quality": 0, "ema": 0, "rsi": 0, "volume": 0, "rejection": 0, "pullback": 0, "add": 0, "add_limit": 0, "add_quality": 0, "passed": 0},
         })

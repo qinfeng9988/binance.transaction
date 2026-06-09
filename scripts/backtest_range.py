@@ -9,7 +9,7 @@ import argparse
 import asyncio
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -24,12 +24,18 @@ FEE_RATE = 0.0004
 
 
 class BacktestEngine:
-    def __init__(self, initial_balance: float = 100000.0):
+    def __init__(self, initial_balance: float = 100000.0,
+                 max_consecutive_losses: int = 3,
+                 cooldown_duration_seconds: int = 3600):
         self.initial_balance = initial_balance
         self.balance = initial_balance
         self.positions: dict[str, dict] = {}
         self.trades: list[dict] = []
         self.equity_curve: list[tuple[datetime, float]] = []
+        self.consecutive_losses = 0
+        self.cooldown_end: datetime | None = None
+        self.max_consecutive_losses = max_consecutive_losses
+        self.cooldown_duration_seconds = cooldown_duration_seconds
 
     def _position_value(self, pos: dict, price: float) -> float:
         entry = pos["entry_price"]
@@ -78,11 +84,30 @@ class BacktestEngine:
         total_fee = fee_open + fee_close
         net_pnl = gross_pnl - total_fee
         self.balance += net_pnl
+
+        # 连续亏损追踪
+        exit_ts = kline["timestamp"] if kline else None
+        if net_pnl <= 0:
+            self.consecutive_losses += 1
+            if self.consecutive_losses >= self.max_consecutive_losses and exit_ts:
+                self.cooldown_end = exit_ts + timedelta(seconds=self.cooldown_duration_seconds)
+                logger.info(
+                    "连续亏损 %d 次，进入冷静期 %d 秒，直到 %s",
+                    self.consecutive_losses, self.cooldown_duration_seconds, self.cooldown_end,
+                )
+        else:
+            if self.consecutive_losses > 0:
+                logger.info("盈利 %.2f，重置连续亏损计数 %d → 0", net_pnl, self.consecutive_losses)
+            self.consecutive_losses = 0
+
         self.trades.append({
             "symbol": symbol, "side": side, "entry_price": entry, "exit_price": exit_price,
             "quantity": qty, "leverage": lev, "gross_pnl": gross_pnl, "fee": total_fee,
             "net_pnl": net_pnl, "reason": reason,
-            "entry_time": pos.get("entry_time"), "exit_time": kline["timestamp"] if kline else None,
+            "entry_time": pos.get("entry_time"), "exit_time": exit_ts,
+            "parent_trend": pos.get("parent_trend"),
+            "adx": pos.get("adx"),
+            "bias": pos.get("bias"),
         })
 
     def update_stop_loss(self, symbol: str, new_stop: float) -> bool:
@@ -103,6 +128,14 @@ class BacktestEngine:
     def execute_signal(self, symbol: str, signal_type: str, price: float,
                        stop_loss: float, leverage: int, timestamp: datetime,
                        metadata: dict | None = None):
+        # 冷静期检查（仅对新开仓，反向平仓和加仓不受限）
+        if not self.positions.get(symbol) and self.cooldown_end and timestamp < self.cooldown_end:
+            logger.info(
+                "拒绝 %s %s 新信号: 处于冷静期 %s",
+                symbol, signal_type, self.cooldown_end,
+            )
+            return
+
         existing = self.positions.get(symbol)
         if existing and existing["side"] != signal_type:
             self._close_position(symbol, price, "reverse_signal")
@@ -111,7 +144,12 @@ class BacktestEngine:
         qty = position_value / price
         if existing:
             add_count = existing.get("add_count", 0)
-            if add_count >= 1:
+            max_additions = metadata.get("max_additions", 1) if metadata else 1
+            if add_count >= max_additions:
+                logger.info(
+                    "忽略 %s %s 同向加仓: 已达最大次数 %d/%d",
+                    symbol, signal_type, add_count, max_additions,
+                )
                 return
             old_qty = existing["quantity"]
             old_entry = existing["entry_price"]
@@ -121,6 +159,10 @@ class BacktestEngine:
             existing["entry_price"] = avg_price
             existing["stop_loss"] = stop_loss
             existing["add_count"] = add_count + 1
+            logger.info(
+                "加仓 %s %s: 新均价=%.2f 总数量=%.4f 加仓次数=%d/%d",
+                symbol, signal_type, avg_price, total_qty, add_count + 1, max_additions,
+            )
         else:
             fee = price * qty * FEE_RATE
             self.balance -= fee
@@ -132,6 +174,9 @@ class BacktestEngine:
             }
             if metadata:
                 pos["quality_score"] = metadata.get("quality_score", 0.0)
+                pos["parent_trend"] = metadata.get("parent_trend")
+                pos["adx"] = metadata.get("adx")
+                pos["bias"] = metadata.get("bias")
             self.positions[symbol] = pos
 
     def partial_close_position(self, symbol: str, close_price: float,
@@ -163,6 +208,9 @@ class BacktestEngine:
             "net_pnl": net_pnl, "reason": reason,
             "entry_time": pos.get("entry_time"),
             "exit_time": kline["timestamp"] if kline else None,
+            "parent_trend": pos.get("parent_trend"),
+            "adx": pos.get("adx"),
+            "bias": pos.get("bias"),
         })
         remaining = qty - close_qty
         if remaining <= 1e-12:
@@ -242,15 +290,24 @@ def run_backtest(symbol: str, timeframe: str, start: datetime, end: datetime, pa
                "low": float(r[3]), "close": float(r[4]), "volume": float(r[5])}
               for r in cur.fetchall()]
 
+    # ---- parent / grandparent 数据需要向前扩展预热期 ----
+    # detect_trend 需要至少 50 根 K 线（EMA50），但 EMA 计算需要更长的历史才稳定。
+    # _align_parent_klines 最多取 200 根，因此预热期至少覆盖 200 根 parent K 线。
+    _CANDLES_PER_DAY = {"5m": 288, "1h": 24, "4h": 6, "1d": 1}
+    _PARENT_WARMUP_CANDLES = 60  # 与 backtest.py 保持一致，再额外加 5 天缓冲
+
     parent_tf = PARENT_TIMEFRAME.get(timeframe)
     parent_klines = []
     if parent_tf:
+        parent_cpd = _CANDLES_PER_DAY.get(parent_tf, 24)
+        parent_warmup_days = int(_PARENT_WARMUP_CANDLES / parent_cpd) + 5
+        parent_start = start - timedelta(days=parent_warmup_days)
         cur.execute(
             """SELECT timestamp, open, high, low, close, volume
                FROM klines WHERE symbol = %s AND timeframe = %s
                  AND timestamp >= %s AND timestamp <= %s
                ORDER BY timestamp ASC""",
-            (symbol, parent_tf, start, end),
+            (symbol, parent_tf, parent_start, end),
         )
         parent_klines = [{"timestamp": r[0], "open": float(r[1]), "high": float(r[2]),
                           "low": float(r[3]), "close": float(r[4]), "volume": float(r[5])}
@@ -259,12 +316,15 @@ def run_backtest(symbol: str, timeframe: str, start: datetime, end: datetime, pa
     grandparent_tf = PARENT_TIMEFRAME.get(parent_tf) if parent_tf else None
     grandparent_klines = []
     if grandparent_tf:
+        gp_cpd = _CANDLES_PER_DAY.get(grandparent_tf, 24)
+        gp_warmup_days = int(_PARENT_WARMUP_CANDLES / gp_cpd) + 5
+        gp_start = start - timedelta(days=gp_warmup_days)
         cur.execute(
             """SELECT timestamp, open, high, low, close, volume
                FROM klines WHERE symbol = %s AND timeframe = %s
                  AND timestamp >= %s AND timestamp <= %s
                ORDER BY timestamp ASC""",
-            (symbol, grandparent_tf, start, end),
+            (symbol, grandparent_tf, gp_start, end),
         )
         grandparent_klines = [{"timestamp": r[0], "open": float(r[1]), "high": float(r[2]),
                                "low": float(r[3]), "close": float(r[4]), "volume": float(r[5])}
@@ -401,11 +461,13 @@ def main():
 
     # 逐笔明细
     print("\n逐笔交易明细:")
-    print(f"{'序号':<4} {'方向':<5} {'入场价':<10} {'出场价':<10} {'杠杆':<5} {'毛利':<12} {'手续费':<10} {'净利':<12} {'原因':<15} {'时间':<20}")
-    print("-" * 130)
+    print(f"{'序号':<4} {'方向':<5} {'入场价':<10} {'出场价':<10} {'杠杆':<5} {'净利':<10} {'parent':<10} {'bias':<14} {'原因':<15} {'时间':<12}")
+    print("-" * 115)
     for i, t in enumerate(engine.trades, 1):
         ts = t["exit_time"].strftime("%m-%d %H:%M") if t["exit_time"] else ""
-        print(f"{i:<4} {t['side']:<5} {t['entry_price']:<10.2f} {t['exit_price']:<10.2f} {t['leverage']:<5}x {t['gross_pnl']:<12.2f} {t['fee']:<10.2f} {t['net_pnl']:<+12.2f} {t['reason']:<15} {ts:<20}")
+        pt = t.get("parent_trend") or "None"
+        bias = t.get("bias") or "None"
+        print(f"{i:<4} {t['side']:<5} {t['entry_price']:<10.2f} {t['exit_price']:<10.2f} {t['leverage']:<5}x {t['net_pnl']:<+10.2f} {pt:<10} {bias:<14} {t['reason']:<15} {ts:<12}")
 
 
 if __name__ == "__main__":

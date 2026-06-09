@@ -29,9 +29,11 @@ strategies:
     ema_slow_period: 21
     ema_gap_threshold_pct: 0.5
     adx_period: 14
-    adx_min: 20.0
-    adx_min_high_quality: 17.0
+    adx_min: 18.0
+    adx_min_high_quality: 15.0
     di_tolerance: 2.0
+    use_parent_trend_override: true
+    ranging_adx_relax_factor: 0.75
     quality_threshold_for_lower_adx: 5.5
     price_vs_ema_filter: false
     rsi_period: 14
@@ -65,15 +67,22 @@ strategies:
       close_pct: 0.4
     - r_threshold: 3.5
       close_pct: 0.3
-    require_rejection_candle: false
+    require_rejection_candle: true
+    rejection_min_wick_ratio: 2.0
+    rejection_max_body_ratio: 1.0
     require_pullback_retest: false
     pullback_lookback: 10
+    # ---- 加仓控制 ----
+    max_additions_ranging: 1
+    max_additions_trending: 2
+    add_quality_tier2: 6.0
+    # ---- 强趋势逆势过滤 ----
+    strict_bias_mode: true
 - name: support_resistance_eth
   enabled: true
   symbols:
   - ETH/USDT
   timeframes:
-  - 5m
   - 1h
   - 4h
   params:
@@ -97,8 +106,8 @@ strategies:
     ema_slow_period: 50
     ema_gap_threshold_pct: 0.5
     adx_period: 14
-    adx_min: 15.0
-    adx_min_high_quality: 13.0
+    adx_min: 13.0
+    adx_min_high_quality: 11.0
     di_tolerance: 2.0
     quality_threshold_for_lower_adx: 5.5
     price_vs_ema_filter: false
@@ -116,9 +125,14 @@ strategies:
     use_atr_stop: true
     atr_period: 14
     atr_multiplier: 2.8
+    partial_tp_enabled: true
+    partial_tp_levels:
+    - r_threshold: 2.0
+      close_pct: 0.4
     require_rejection_candle: false
     require_pullback_retest: false
-    pullback_lookback: 10
+    # ---- 强趋势逆势过滤 ----
+    strict_bias_mode: true
 - name: support_resistance_sol
   enabled: true
   symbols:
@@ -132,6 +146,7 @@ strategies:
     min_touches: 4
     stop_loss_pct: 1.5
     leverage: 3
+    ranging_leverage_multiplier: 0.5
     entry_threshold_pct: 1.5
     secondary_min_touches: 4
     secondary_entry_threshold_pct: 0.5
@@ -141,6 +156,14 @@ strategies:
     swing_window_weak: 2
     use_order_blocks: true
     use_fvg: true
+    use_resonance: false
+    # resonance_timeframe: 15m
+    # resonance_ema_fast_period: 9
+    # resonance_ema_slow_period: 21
+    # resonance_ema_gap_threshold_pct: 0.5
+    # resonance_sr_threshold_pct: 5.0
+    # resonance_min_touches: 3
+    # resonance_lookback: 100
     require_parent_ema_aligned: true
     ema_fast_period: 9
     ema_slow_period: 21
@@ -176,15 +199,20 @@ strategies:
     structured_stop_min_r: 1.5
     structured_stop_buffer_pct: 0.3
     structured_stop_quality_buffer_pct: 0.2
-    partial_tp_enabled: false
+    partial_tp_enabled: true
     partial_tp_levels:
     - r_threshold: 2.0
       close_pct: 0.4
-    - r_threshold: 3.5
-      close_pct: 0.3
     require_rejection_candle: false
     require_pullback_retest: false
-    pullback_lookback: 10
+    # ---- 加仓控制 ----
+    max_additions_ranging: 0
+    max_additions_trending: 0
+    add_quality_tier2: 6.0
+    # ---- 强趋势逆势过滤（仅SOL） ----
+    strict_bias_mode: true
+    # ---- 趋势期追仓加仓 ----
+    trend_addition_allow_chase: true
 - name: support_resistance_paxg
   enabled: false
   symbols:
@@ -210,11 +238,13 @@ strategies:
     require_parent_ema_aligned: true
     ema_fast_period: 9
     ema_slow_period: 21
-    ema_gap_threshold_pct: 0.5
+    ema_gap_threshold_pct: 0.3
     adx_period: 14
     adx_min: 20.0
     adx_min_high_quality: 17.0
     di_tolerance: 2.0
+    use_parent_trend_override: true
+    ranging_adx_relax_factor: 0.75
     quality_threshold_for_lower_adx: 5.5
     price_vs_ema_filter: false
     rsi_period: 14

@@ -31,12 +31,15 @@ FEE_RATE = 0.0004
 class BacktestEngine:
     """简单回测引擎 — 逐 K 线推进，模拟成交与止损。"""
 
-    def __init__(self, initial_balance: float = 100000.0):
+    def __init__(self, initial_balance: float = 100000.0,
+                 max_total_risk_pct: float = 8.0):
         self.initial_balance = initial_balance
         self.balance = initial_balance
         self.positions: dict[str, dict] = {}   # symbol -> position
         self.trades: list[dict] = []           # 成交记录
         self.equity_curve: list[tuple[datetime, float]] = []  # 权益曲线
+        self.consecutive_losses = 0
+        self.max_total_risk_pct = max_total_risk_pct
 
     def _position_value(self, pos: dict, price: float) -> float:
         """计算持仓当前市值（含杠杆盈亏）。"""
@@ -55,6 +58,14 @@ class BacktestEngine:
             p = price_map.get(sym, pos["entry_price"])
             total += self._position_value(pos, p) - pos["quantity"] * pos["entry_price"]
         self.equity_curve.append((timestamp, total))
+
+    def _total_risk_pct(self) -> float:
+        """计算当前所有持仓的潜在最大亏损占余额比例。"""
+        total_risk = 0.0
+        for pos in self.positions.values():
+            risk_per_unit = abs(pos["entry_price"] - pos["stop_loss"])
+            total_risk += risk_per_unit * pos["quantity"] * pos["leverage"]
+        return (total_risk / self.balance * 100) if self.balance > 0 else 0.0
 
     def check_stop_loss(self, symbol: str, kline: dict) -> bool:
         """检查当前 K 线是否触及止损，返回是否触发。"""
@@ -99,6 +110,12 @@ class BacktestEngine:
 
         self.balance += net_pnl
 
+        # 更新连续亏损计数
+        if net_pnl <= 0:
+            self.consecutive_losses += 1
+        else:
+            self.consecutive_losses = 0
+
         self.trades.append({
             "symbol": symbol,
             "side": side,
@@ -112,6 +129,9 @@ class BacktestEngine:
             "reason": reason,
             "entry_time": pos.get("entry_time"),
             "exit_time": kline["timestamp"] if kline else None,
+            "parent_trend": pos.get("parent_trend"),
+            "adx": pos.get("adx"),
+            "bias": pos.get("bias"),
         })
 
         logger.info(
@@ -148,13 +168,25 @@ class BacktestEngine:
         position_value = self.balance * 0.1
         qty = position_value / price
 
+        # 从信号 metadata 读取加仓上限（策略层已计算并传递）
+        max_additions = metadata.get("max_additions", 1) if metadata else 1
+
+        # 连续亏损降级：连续亏损 >= 3 次后，加仓上限降低 1 级
+        effective_max_additions = max_additions
+        if self.consecutive_losses >= 3:
+            effective_max_additions = max(0, max_additions - 1)
+            logger.info(
+                "连续亏损降级: %d次, 加仓上限 %d -> %d",
+                self.consecutive_losses, max_additions, effective_max_additions,
+            )
+
         if existing:
-            # 同向加仓 — 限制最多加仓 1 次（最多 2 层仓位）
+            # 同向加仓
             add_count = existing.get("add_count", 0)
-            if add_count >= 1:
+            if add_count >= effective_max_additions:
                 logger.info(
-                    "忽略 %s %s 同向信号: 已达最大加仓次数(%d)",
-                    symbol, signal_type, add_count,
+                    "忽略 %s %s 同向信号: 已达最大加仓次数(%d >= %d)",
+                    symbol, signal_type, add_count, effective_max_additions,
                 )
                 return
 
@@ -167,11 +199,20 @@ class BacktestEngine:
             existing["stop_loss"] = stop_loss
             existing["add_count"] = add_count + 1
             logger.info(
-                "加仓 %s %s 新均价=%.2f 总数量=%.4f 止损=%.2f 加仓次数=%d",
-                symbol, signal_type, avg_price, total_qty, stop_loss, add_count + 1,
+                "加仓 %s %s 新均价=%.2f 总数量=%.4f 止损=%.2f 加仓次数=%d/%d",
+                symbol, signal_type, avg_price, total_qty, stop_loss,
+                add_count + 1, effective_max_additions,
             )
         else:
-            # 新开仓
+            # 新开仓 —— 总风险上限检查
+            if self._total_risk_pct() >= self.max_total_risk_pct:
+                logger.warning(
+                    "拒绝开仓 %s %s: 总风险 %.2f%% >= 上限 %.2f%%",
+                    symbol, signal_type,
+                    self._total_risk_pct(), self.max_total_risk_pct,
+                )
+                return
+
             fee = price * qty * FEE_RATE
             self.balance -= fee  # 先扣开仓手续费
             pos = {
@@ -187,10 +228,14 @@ class BacktestEngine:
             }
             if metadata:
                 pos["quality_score"] = metadata.get("quality_score", 0.0)
+                pos["parent_trend"] = metadata.get("parent_trend")
+                pos["adx"] = metadata.get("adx")
+                pos["bias"] = metadata.get("bias")
             self.positions[symbol] = pos
             logger.info(
-                "开仓 %s %s 价格=%.2f 数量=%.4f 杠杆=%dx 止损=%.2f",
+                "开仓 %s %s 价格=%.2f 数量=%.4f 杠杆=%dx 止损=%.2f 总风险=%.2f%%",
                 symbol, signal_type, price, qty, leverage, stop_loss,
+                self._total_risk_pct(),
             )
 
     def partial_close_position(self, symbol: str, close_price: float,
@@ -228,6 +273,9 @@ class BacktestEngine:
             "net_pnl": net_pnl, "reason": reason,
             "entry_time": pos.get("entry_time"),
             "exit_time": kline["timestamp"] if kline else None,
+            "parent_trend": pos.get("parent_trend"),
+            "adx": pos.get("adx"),
+            "bias": pos.get("bias"),
         })
 
         remaining = qty - close_qty
@@ -455,6 +503,26 @@ async def run_backtest(symbol: str, timeframe: str, days: int, strategy_name: st
     else:
         grandparent_aligned = [None] * len(klines_chrono)
 
+    # ---- 读取共振确认周期数据 ----
+    confirm_tf = strategy_cfg.params.get("resonance_timeframe") if strategy_cfg.params.get("use_resonance") else None
+    confirm_aligned: list[list[dict] | None] = []
+    if confirm_tf:
+        confirm_candles_per_day = {"5m": 288, "15m": 96, "1h": 24, "4h": 6, "1d": 1}.get(confirm_tf, 24)
+        confirm_needed = days * confirm_candles_per_day + 60
+        logger.info("从数据库读取共振确认周期 %s %s 数据, 请求 %d 根 K 线", symbol, confirm_tf, confirm_needed)
+        confirm_klines = data_store.get_klines(symbol, confirm_tf, limit=confirm_needed)
+        if len(confirm_klines) < 50:
+            logger.warning("共振确认周期 %s %s 数据不足 (%d 根), 将不使用共振过滤",
+                           symbol, confirm_tf, len(confirm_klines))
+            confirm_aligned = [None] * len(klines_chrono)
+        else:
+            confirm_klines_chrono = list(reversed(confirm_klines))
+            confirm_aligned = _align_parent_klines(klines_chrono, confirm_klines_chrono)
+            logger.info("共振确认周期 %s 对齐完成: %d 根当前 K 线, %d 根确认 K 线",
+                        confirm_tf, len(klines_chrono), len(confirm_klines_chrono))
+    else:
+        confirm_aligned = [None] * len(klines_chrono)
+
     # ---- 回测循环 ----
     engine = BacktestEngine()
     window_size = 150
@@ -489,9 +557,13 @@ async def run_backtest(symbol: str, timeframe: str, days: int, strategy_name: st
         # 5. 获取对应的 grandparent 窗口
         grandparent_window = grandparent_aligned[i] if i < len(grandparent_aligned) else None
 
-        # 6. 调用策略生成信号（传入 parent_klines 和 grandparent_klines）
+        # 6. 获取对应的共振确认周期窗口
+        confirm_window = confirm_aligned[i] if i < len(confirm_aligned) else None
+
+        # 7. 调用策略生成信号（传入 parent_klines、grandparent_klines 和 confirm_klines）
         signals = strategy.on_bar(symbol, timeframe, window, engine.positions.values(),
-                                  parent_klines=parent_window, grandparent_klines=grandparent_window)
+                                  parent_klines=parent_window, grandparent_klines=grandparent_window,
+                                  confirm_klines=confirm_window)
 
         # 7. 执行信号（冷却期去重）
         for sig in signals:
@@ -571,6 +643,8 @@ async def run_backtest(symbol: str, timeframe: str, days: int, strategy_name: st
         print(f"  Rejection candle rejected:    {stats['rejection']:>8} ({stats['rejection']/checked*100:.1f}%)")
         print(f"  Pullback filter rejected:     {stats['pullback']:>8} ({stats['pullback']/checked*100:.1f}%)")
         print(f"  Add position rejected:        {stats['add']:>8} ({stats['add']/checked*100:.1f}%)")
+        print(f"  Add limit rejected:           {stats.get('add_limit', 0):>8} ({stats.get('add_limit', 0)/checked*100:.1f}%)")
+        print(f"  Add quality rejected:         {stats.get('add_quality', 0):>8} ({stats.get('add_quality', 0)/checked*100:.1f}%)")
         # 注意：各层拦截有重叠（同一 S/R 位可能先后被多个条件过滤），所以各层之和可能 > rejected
         print(f"  Overall rejection rate:       {rejected:>8} ({rejected/checked*100:.1f}%)")
     print()
@@ -585,6 +659,7 @@ async def run_backtest(symbol: str, timeframe: str, days: int, strategy_name: st
         print()
 
     data_store.close()
+    return engine
 
 
 def main():
