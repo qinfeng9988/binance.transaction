@@ -62,19 +62,80 @@ def main():
     # ====== 历史交易 ======
     if engine.trades_closed:
         print(f"\n  历史交易 ({len(engine.trades_closed)} 笔，最近 20 笔)")
-        print("-" * 100)
+        print("-" * 110)
         print(f"  {'#':<4} {'交易对':<12} {'方向':<5} {'入场价':>9} {'出场价':>9} "
-              f"{'数量':>8} {'杠杆':>4} {'盈亏':>10} {'入场时间':<20}")
-        print("-" * 100)
+              f"{'数量':>8} {'杠杆':>4} {'盈亏':>10} {'入场时间':<12} {'出场时间':<12}")
+        print("-" * 110)
         for i, t in enumerate(engine.trades_closed[-20:], 1):
             pnl_str = f"{t['pnl']:>+9.2f}"
-            entry_time = str(t.get("entry_time", ""))[:19]
+            et = t.get("entry_time")
+            xt = t.get("exit_time")
+            entry_ts = et.strftime("%m-%d %H:%M") if et else ""
+            exit_ts = xt.strftime("%m-%d %H:%M") if xt else ""
             print(f"  {i:<4} {t['symbol']:<12} {t['side']:<5} "
                   f"{t['entry_price']:>9,.2f} {t['exit_price']:>9,.2f} "
-                  f"{t['quantity']:>8.4f} {t['leverage']:>4}x {pnl_str} {entry_time:<20}")
-        print("-" * 100)
+                  f"{t['quantity']:>8.4f} {t['leverage']:>4}x {pnl_str} {entry_ts:<12} {exit_ts:<12}")
+        print("-" * 110)
     else:
         print("\n  暂无历史交易记录")
+
+    # ====== 信号拦截统计 ======
+    with ds._get_conn().cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM signals")
+        total_signals = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM orders WHERE mode = %s", ('paper',))
+        total_orders = cur.fetchone()[0]
+        blocked = total_signals - total_orders
+
+    if total_signals > 0:
+        print(f"\n  信号拦截统计")
+        print("-" * 40)
+        print(f"  总信号数:       {total_signals:>8}")
+        print(f"  实际成交:       {total_orders:>8}")
+        print(f"  被拦截:         {blocked:>8} ({blocked/total_signals*100:.1f}%)")
+        print("-" * 40)
+
+    # ====== FILTER SUMMARY（详细拦截原因）======
+    filter_stats = ds.get_filter_stats()
+    if filter_stats:
+        print("\n  === FILTER SUMMARY ===")
+        # 按 direction 分组，再按 filter_type 索引
+        by_direction: dict[str, dict[str, int]] = {}
+        for row in filter_stats:
+            direction = row["direction"]
+            ft = row["filter_type"]
+            if direction not in by_direction:
+                by_direction[direction] = {}
+            by_direction[direction][ft] = row["rejected_count"]
+
+        for direction in sorted(by_direction.keys()):
+            ft_map = by_direction[direction]
+            checked = ft_map.get("checked", 0)
+            passed = ft_map.get("passed", 0)
+            rejected = checked - passed
+            if checked == 0:
+                continue
+            print(f"\n  {direction.upper()} direction:")
+            print(f"    Total checked S/R levels:     {checked:>8}")
+            print(f"    Total signals passed:         {passed:>8} ({passed/checked*100:.1f}%)")
+            _show = lambda label, ft: print(
+                f"    {label:<30} {ft_map.get(ft, 0):>8} ({ft_map.get(ft, 0)/checked*100:.1f}%)"
+            ) if ft_map.get(ft, 0) > 0 else None
+            _show("Distance filter rejected:", "distance")
+            _show("ADX filter rejected:", "adx")
+            _show("DI direction rejected:", "di")
+            _show("Quality filter rejected:", "quality")
+            _show("EMA filter rejected:", "ema")
+            _show("RSI filter rejected:", "rsi")
+            _show("Volume filter rejected:", "volume")
+            _show("Rejection candle rejected:", "rejection")
+            _show("Pullback filter rejected:", "pullback")
+            _show("FR hard block rejected:", "fr_hard_block")
+            _show("FR penalty applied:", "fr_penalty")
+            _show("Add position rejected:", "add")
+            _show("Add limit rejected:", "add_limit")
+            _show("Add quality rejected:", "add_quality")
+            print(f"    {'Overall rejection rate:':<30} {rejected:>8} ({rejected/checked*100:.1f}%)")
 
     print()
     ds.close()

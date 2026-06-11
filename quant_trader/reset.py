@@ -28,7 +28,7 @@ from quant_trader.core.data_store import DataStore
 
 
 # 需要归档的交易表
-TRADE_TABLES = ["orders", "signals", "positions"]
+TRADE_TABLES = ["orders", "signals", "positions", "filter_stats"]
 
 
 def get_conn(data_store: DataStore):

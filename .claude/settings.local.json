@@ -51,7 +51,14 @@
       "Bash(awk '/逐笔交易明细/,/end_of_data/')",
       "Bash(awk '{print $NF}')",
       "Bash(awk '{print $\\(NF-1\\)}')",
-      "Bash(git checkout *)"
+      "Bash(git checkout *)",
+      "Bash(python3 scripts/backtest_range.py --symbol BTC/USDT --timeframe 5m --start 2026-01-01 --end 2026-06-09)",
+      "Read(//tmp/**)",
+      "Read(//private/tmp/**)",
+      "Bash(openspec-cn archive *)",
+      "Bash(echo \"PID:$!\")",
+      "Bash(awk '{print $5, $NF}')",
+      "Bash(awk '{print $5}')"
     ]
   }
 }

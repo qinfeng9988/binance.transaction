@@ -635,6 +635,15 @@ class SupportResistanceStrategy(BaseStrategy):
         use_order_blocks = params.get("use_order_blocks", False)
         use_fvg = params.get("use_fvg", False)
 
+        # ---- Volume Profile VAH/VAL 增强 ----
+        use_vah_val = params.get("use_vah_val", False)
+        value_area_pct = params.get("value_area_pct", 0.70)
+        vah_val_near_threshold_pct = params.get("vah_val_near_threshold_pct", 0.005)
+        poc_near_threshold_pct = params.get("poc_near_threshold_pct", 0.005)
+        poc_far_threshold_pct = params.get("poc_far_threshold_pct", 0.007)
+        vah_val_near_bonus = params.get("vah_val_near_bonus", 0.5)
+        vah_val_inner_bonus = params.get("vah_val_inner_bonus", 0.3)
+
         leverage = params.get("leverage", 1)
         ranging_leverage_multiplier = params.get("ranging_leverage_multiplier", 1.0)
         ranging_atr_multiplier = params.get("ranging_atr_multiplier", None)
@@ -774,6 +783,13 @@ class SupportResistanceStrategy(BaseStrategy):
             use_fvg=use_fvg,
             rejection_min_wick_ratio=rejection_min_wick_ratio,
             rejection_max_body_ratio=rejection_max_body_ratio,
+            use_vah_val=use_vah_val,
+            value_area_pct=value_area_pct,
+            vah_val_near_threshold_pct=vah_val_near_threshold_pct,
+            poc_near_threshold_pct=poc_near_threshold_pct,
+            poc_far_threshold_pct=poc_far_threshold_pct,
+            vah_val_near_bonus=vah_val_near_bonus,
+            vah_val_inner_bonus=vah_val_inner_bonus,
         )
 
         # ========== 4. 确定交易方向与主次 ==========
@@ -871,6 +887,9 @@ class SupportResistanceStrategy(BaseStrategy):
                 use_fvg=use_fvg,
                 rejection_min_wick_ratio=rejection_min_wick_ratio,
                 rejection_max_body_ratio=rejection_max_body_ratio,
+                use_vah_val=use_vah_val,
+                value_area_pct=value_area_pct,
+                vah_val_near_threshold_pct=vah_val_near_threshold_pct,
             )
 
             # 检查当前价格是否靠近确认周期的 S/R 位
@@ -939,6 +958,9 @@ class SupportResistanceStrategy(BaseStrategy):
                 use_fvg=use_fvg,
                 rejection_min_wick_ratio=rejection_min_wick_ratio,
                 rejection_max_body_ratio=rejection_max_body_ratio,
+                use_vah_val=use_vah_val,
+                value_area_pct=value_area_pct,
+                vah_val_near_threshold_pct=vah_val_near_threshold_pct,
             )
 
             for support in buy_levels["support"]:
@@ -1221,6 +1243,9 @@ class SupportResistanceStrategy(BaseStrategy):
                 use_fvg=use_fvg,
                 rejection_min_wick_ratio=rejection_min_wick_ratio,
                 rejection_max_body_ratio=rejection_max_body_ratio,
+                use_vah_val=use_vah_val,
+                value_area_pct=value_area_pct,
+                vah_val_near_threshold_pct=vah_val_near_threshold_pct,
             )
 
             for resistance in sell_levels["resistance"]:
@@ -1505,6 +1530,9 @@ class SupportResistanceStrategy(BaseStrategy):
                     use_fvg=use_fvg,
                     rejection_min_wick_ratio=rejection_min_wick_ratio,
                     rejection_max_body_ratio=rejection_max_body_ratio,
+                    use_vah_val=use_vah_val,
+                    value_area_pct=value_area_pct,
+                    vah_val_near_threshold_pct=vah_val_near_threshold_pct,
                 )
                 all_levels = struct_levels["support"] + struct_levels["resistance"]
 

@@ -212,6 +212,24 @@ CREATE INDEX IF NOT EXISTS idx_klines_symbol_tf ON klines(symbol, timeframe, tim
 CREATE INDEX IF NOT EXISTS idx_signals_symbol ON signals(symbol, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_orders_symbol ON orders(symbol, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_positions_open ON positions(status) WHERE status = 'open';
+
+-- ============================================================
+-- 过滤统计表（策略信号拦截原因累计统计，行模式：每 filter_type 一行）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS filter_stats (
+    id SERIAL PRIMARY KEY,
+    strategy_name VARCHAR(50) NOT NULL,
+    symbol VARCHAR(20) NOT NULL,
+    timeframe VARCHAR(10) NOT NULL,
+    direction VARCHAR(10) NOT NULL,
+    filter_type VARCHAR(30) NOT NULL,
+    rejected_count INTEGER DEFAULT 0,
+    checked_count INTEGER DEFAULT 0,
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(strategy_name, symbol, timeframe, direction, filter_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_filter_stats_lookup ON filter_stats(strategy_name, symbol, timeframe, direction);
 """
 
 
@@ -394,3 +412,48 @@ class DataStore:
         with self._get_conn().cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM positions WHERE status = 'open'")
             return cur.fetchone()[0]
+
+    # ==================== 过滤统计 ====================
+
+    def upsert_filter_stats(self, strategy_name: str, symbol: str, timeframe: str,
+                            direction: str, stats: dict):
+        """更新或插入过滤统计（行模式，先 UPDATE 后 INSERT）。"""
+        with self._get_conn().cursor() as cur:
+            for filter_type, count in stats.items():
+                if count == 0:
+                    continue
+                # 先 UPDATE
+                cur.execute(
+                    """UPDATE filter_stats
+                       SET rejected_count = %s, updated_at = NOW()
+                       WHERE strategy_name = %s AND symbol = %s
+                         AND timeframe = %s AND direction = %s
+                         AND filter_type = %s""",
+                    (count, strategy_name, symbol, timeframe, direction, filter_type),
+                )
+                if cur.rowcount == 0:
+                    # 无此行，INSERT
+                    cur.execute(
+                        """INSERT INTO filter_stats
+                           (strategy_name, symbol, timeframe, direction, filter_type,
+                            rejected_count, checked_count, updated_at)
+                           VALUES (%s, %s, %s, %s, %s, %s, 0, NOW())""",
+                        (strategy_name, symbol, timeframe, direction, filter_type, count),
+                    )
+
+    def get_filter_stats(self, strategy_name: str | None = None,
+                         symbol: str | None = None) -> list[dict]:
+        """查询过滤统计。"""
+        sql = "SELECT * FROM filter_stats WHERE 1=1"
+        params = []
+        if strategy_name:
+            sql += " AND strategy_name = %s"
+            params.append(strategy_name)
+        if symbol:
+            sql += " AND symbol = %s"
+            params.append(symbol)
+        sql += " ORDER BY symbol, timeframe, direction, filter_type"
+        with self._get_conn().cursor() as cur:
+            cur.execute(sql, params)
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, row)) for row in cur.fetchall()]

@@ -70,7 +70,8 @@ class PaperTradingEngine:
 
     def place_order(self, symbol: str, side: str, amount: float,
                     price: float, leverage: int = 1,
-                    stop_loss: float = 0.0, data_store=None) -> MockOrder | None:
+                    stop_loss: float = 0.0, data_store=None,
+                    metadata: dict | None = None) -> MockOrder | None:
         """模拟下单。
 
         模拟模式下市价单立即成交，限价单挂入等待成交。
@@ -89,7 +90,7 @@ class PaperTradingEngine:
         # 检查余额是否足够（合约需要保证金）
         if self.default_type == "swap":
             required_margin = (price * amount) / leverage
-            fee = required_margin * self.fee_rate
+            fee = price * amount * self.fee_rate
             if required_margin + fee > self.balance:
                 logger.warning("[模拟] 保证金不足: 需要 %.2f, 可用 %.2f",
                                required_margin + fee, self.balance)
@@ -124,7 +125,7 @@ class PaperTradingEngine:
             self.balance -= (price * amount + fee)
 
         # 更新或创建持仓
-        self._update_position(order, stop_loss, data_store)
+        self._update_position(order, stop_loss, data_store, metadata=metadata)
 
         logger.info(
             "[模拟] %s %s %s 价格=%.2f 数量=%.4f 杠杆=%dx 手续费=%.2f",
@@ -363,7 +364,79 @@ class PaperTradingEngine:
             "return_pct": round((self.get_total_equity() - self.initial_balance) / self.initial_balance * 100, 2),
         }
 
-    def _update_position(self, order: MockOrder, stop_loss: float, data_store=None):
+    def update_stop_loss(self, symbol: str, new_stop: float) -> bool:
+        """更新持仓止损位（只能向有利方向移动）。"""
+        pos = self.positions.get(symbol)
+        if not pos:
+            return False
+        side = pos.side
+        current_stop = pos.stop_loss
+        if side == "buy" and new_stop > current_stop:
+            pos.stop_loss = new_stop
+            return True
+        if side == "sell" and new_stop < current_stop:
+            pos.stop_loss = new_stop
+            return True
+        return False
+
+    def partial_close_position(self, symbol: str, close_price: float,
+                                close_ratio: float, data_store=None) -> float | None:
+        """部分平仓指定比例的仓位。
+
+        返回实现盈亏，无持仓或已全部平仓返回 None。
+        """
+        pos = self.positions.get(symbol)
+        if not pos:
+            return None
+        qty = pos.quantity
+        close_qty = qty * close_ratio
+        if close_qty <= 0:
+            return None
+        entry = pos.entry_price
+        side = pos.side
+
+        if side == "buy":
+            pnl = (close_price - entry) * close_qty
+        else:
+            pnl = (entry - close_price) * close_qty
+
+        exit_value = close_price * close_qty
+        fee = exit_value * self.fee_rate
+        net_pnl = pnl - fee
+
+        if self.default_type == "swap":
+            margin = (entry * close_qty) / pos.leverage
+            self.balance += margin + net_pnl
+        else:
+            self.balance += close_price * close_qty - fee
+
+        remaining = qty - close_qty
+        if remaining <= 1e-12:
+            del self.positions[symbol]
+        else:
+            pos.quantity = remaining
+
+        self.trades_closed.append({
+            "symbol": symbol,
+            "side": side,
+            "entry_price": entry,
+            "exit_price": close_price,
+            "quantity": close_qty,
+            "leverage": pos.leverage,
+            "pnl": net_pnl,
+            "fee": fee,
+            "entry_time": pos.entry_time,
+            "exit_time": datetime.now(tz=timezone.utc),
+        })
+
+        logger.info(
+            "[模拟] 部分平仓 %s %s 数量=%.4f 剩余=%.4f 入场=%.2f 出场=%.2f 盈亏=%.2f 手续费=%.2f",
+            symbol, side, close_qty, remaining, entry, close_price, net_pnl, fee,
+        )
+        return net_pnl
+
+    def _update_position(self, order: MockOrder, stop_loss: float, data_store=None,
+                         metadata: dict | None = None):
         """更新持仓（开仓或加仓或平仓）。
 
         如果下单方向与现有持仓相反，则执行平仓。
@@ -376,6 +449,14 @@ class PaperTradingEngine:
                 pnl = self.close_position(order.symbol, order.price, data_store)
                 if pnl is not None and data_store:
                     self.sync_position_to_db(data_store, order.symbol, order.price, pnl)
+                return
+            # 同向单 = 加仓：检查最大加仓次数
+            max_additions = metadata.get("max_additions", 1) if metadata else 1
+            if existing.add_count >= max_additions:
+                logger.info(
+                    "[模拟] 忽略 %s %s 同向加仓: 已达最大次数 %d/%d",
+                    order.symbol, order.side, existing.add_count, max_additions,
+                )
                 return
             # 同向单 = 加仓：计算加权平均价
             total_qty = existing.quantity + order.amount

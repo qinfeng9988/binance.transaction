@@ -91,21 +91,27 @@ def cluster_levels(prices: list[float], tolerance_pct: float = 0.005) -> list[di
     return sorted(result, key=lambda x: x["strength"], reverse=True)
 
 
-def compute_volume_profile(klines: list[dict], num_bins: int = 50) -> dict:
-    """计算成交量分布 — 将成交量聚合到价格区间，并提取 POC / HVN。
+def compute_volume_profile(klines: list[dict], num_bins: int = 50,
+                           value_area_pct: float = 0.70) -> dict:
+    """计算成交量分布 — 将成交量聚合到价格区间，并提取 POC / HVN / VAH / VAL。
 
     高成交量区域通常构成强支撑/压力。POC（Point of Control）是成交量
     最大的价格点，HVN（High Volume Node）是成交量显著高于平均的节点。
+    VAH/VAL（Value Area High/Low）是累计成交量达到指定百分比的价格区间
+    上下沿，代表市场共识的价值区域边界。
 
     参数:
         klines: OHLCV 数据（旧→新）
         num_bins: 价格区间数量
+        value_area_pct: Value Area 累计成交量百分比（默认 70%）
 
     返回:
         {
             "profile": [{"price": float, "volume": float}, ...],  # 按成交量降序
             "poc": float,       # Point of Control：成交量最大的价格点
             "hvn": [float, ...], # High Volume Nodes：volume > mean + 0.5*std
+            "vah": float,       # Value Area High：价值区上沿
+            "val": float,       # Value Area Low：价值区下沿
             "mean_volume": float,
             "std_volume": float,
         }
@@ -115,6 +121,8 @@ def compute_volume_profile(klines: list[dict], num_bins: int = 50) -> dict:
             "profile": [],
             "poc": 0.0,
             "hvn": [],
+            "vah": 0.0,
+            "val": 0.0,
             "mean_volume": 0.0,
             "std_volume": 0.0,
         }
@@ -126,6 +134,8 @@ def compute_volume_profile(klines: list[dict], num_bins: int = 50) -> dict:
             "profile": [],
             "poc": min_price,
             "hvn": [],
+            "vah": min_price,
+            "val": min_price,
             "mean_volume": 0.0,
             "std_volume": 0.0,
         }
@@ -161,10 +171,51 @@ def compute_volume_profile(klines: list[dict], num_bins: int = 50) -> dict:
     hvn_threshold = mean_vol + 0.5 * std_vol
     hvn = [p["price"] for p in profile if p["volume"] >= hvn_threshold]
 
+    # --- VAH / VAL 计算（Value Area High / Low）---
+    vah = 0.0
+    val = 0.0
+    if profile:
+        # 按价格排序（低到高），用于从 POC 向两侧扩展
+        profile_by_price = sorted(result, key=lambda x: x["price"])
+
+        # 找到 POC 在价格排序列表中的索引
+        poc_idx = max(
+            range(len(profile_by_price)),
+            key=lambda i: profile_by_price[i]["volume"],
+        )
+
+        total_volume = sum(volumes)
+        target_volume = total_volume * value_area_pct
+
+        included = {poc_idx}
+        cum_vol = profile_by_price[poc_idx]["volume"]
+
+        while cum_vol < target_volume and len(included) < len(profile_by_price):
+            lower = min(included) - 1
+            upper = max(included) + 1
+
+            lower_vol = profile_by_price[lower]["volume"] if lower >= 0 else -1.0
+            upper_vol = profile_by_price[upper]["volume"] if upper < len(profile_by_price) else -1.0
+
+            if lower_vol >= upper_vol and lower >= 0:
+                included.add(lower)
+                cum_vol += lower_vol
+            elif upper < len(profile_by_price):
+                included.add(upper)
+                cum_vol += upper_vol
+            else:
+                break
+
+        prices_in_va = [profile_by_price[i]["price"] for i in included]
+        val = min(prices_in_va)
+        vah = max(prices_in_va)
+
     return {
         "profile": profile,
         "poc": poc,
         "hvn": hvn,
+        "vah": round(vah, 2),
+        "val": round(val, 2),
         "mean_volume": round(mean_vol, 2),
         "std_volume": round(std_vol, 2),
     }
@@ -369,11 +420,18 @@ def identify_support_resistance(klines: list[dict], min_touches: float = 2.0,
                                 use_order_blocks: bool = False,
                                 use_fvg: bool = False,
                                 rejection_min_wick_ratio: float = 2.0,
-                                rejection_max_body_ratio: float = 0.5) -> dict:
-    """完整的支撑/压力位分析（含质量加权评分 + 趋势一致性 + 新鲜度）。
+                                rejection_max_body_ratio: float = 0.5,
+                                use_vah_val: bool = False,
+                                value_area_pct: float = 0.70,
+                                vah_val_near_threshold_pct: float = 0.005,
+                                poc_near_threshold_pct: float = 0.005,
+                                poc_far_threshold_pct: float = 0.007,
+                                vah_val_near_bonus: float = 0.5,
+                                vah_val_inner_bonus: float = 0.3) -> dict:
+    """完整的支撑/压力位分析（含质量加权评分 + 趋势一致性 + 新鲜度 + VAH/VAL）。
 
-    结合波段高低点聚类、Order Block、FVG、成交量分布、成交量爆发、
-    拒绝蜡烛确认、趋势一致性和新鲜度，得到更可靠的价位及质量评分。
+    结合波段高低点聚类、Order Block、FVG、成交量分布（POC/HVN/VAH/VAL）、
+    成交量爆发、拒绝蜡烛确认、趋势一致性和新鲜度，得到更可靠的价位及质量评分。
 
     参数:
         klines: OHLCV 数据（新→旧，index 0 为最新）
@@ -389,6 +447,13 @@ def identify_support_resistance(klines: list[dict], min_touches: float = 2.0,
         swing_window_weak: 弱趋势时的窗口大小
         use_order_blocks: 是否使用 Order Block 作为补充 S/R
         use_fvg: 是否使用 FVG 作为补充 S/R
+        use_vah_val: 是否启用 VAH/VAL 评分加成
+        value_area_pct: Value Area 累计成交量百分比
+        vah_val_near_threshold_pct: VAH/VAL 近区距离阈值（如 0.005 表示 ±0.5%）
+        poc_near_threshold_pct: POC 近距离阈值（默认 ±0.5%）
+        poc_far_threshold_pct: POC 远距离阈值（默认 ±0.7%，B+D方案缩小）
+        vah_val_near_bonus: VAH/VAL 边界加分（默认 +0.5，温和）
+        vah_val_inner_bonus: Value Area 内部加分（默认 +0.3）
 
     返回:
         {
@@ -397,7 +462,8 @@ def identify_support_resistance(klines: list[dict], min_touches: float = 2.0,
         }
     """
     # 注意：klines 为新→旧，但 find_swing_highs_lows 需要旧→新
-    data = list(reversed(klines[-lookback:])) if len(klines) > lookback else list(reversed(klines))
+    # 取最新的 lookback 根（index 0 为最新），反转后得到旧→新
+    data = list(reversed(klines[:lookback])) if len(klines) > lookback else list(reversed(klines))
 
     # --- 自适应 swing 窗口 ---
     left = right = 2
@@ -442,11 +508,13 @@ def identify_support_resistance(klines: list[dict], min_touches: float = 2.0,
     resistance_clusters = cluster_levels(all_resistance_prices)
     support_clusters = cluster_levels(all_support_prices)
 
-    # 成交量分布确认：POC / HVN / 高量节点分层加分
-    vp_result = compute_volume_profile(data)
+    # 成交量分布确认：POC / HVN / VAH / VAL / 高量节点分层加分
+    vp_result = compute_volume_profile(data, value_area_pct=value_area_pct)
     volume_profile = vp_result["profile"]
     poc_price = vp_result["poc"]
     hvn_prices = vp_result["hvn"]
+    vah_price = vp_result["vah"] if use_vah_val else 0.0
+    val_price = vp_result["val"] if use_vah_val else 0.0
     high_volume_prices = set(
         vp["price"] for vp in volume_profile[:10]  # 前 10 个高量节点（兜底）
     )
@@ -467,10 +535,10 @@ def identify_support_resistance(klines: list[dict], min_touches: float = 2.0,
             vp_detail = "none"
 
             # 1. POC (Point of Control) — 成交量最大的节点
-            if poc_price and abs(price - poc_price) / poc_price < 0.005:
+            if poc_price and abs(price - poc_price) / poc_price < poc_near_threshold_pct:
                 vp_bonus = 2.0
                 vp_detail = "POC_near"
-            elif poc_price and abs(price - poc_price) / poc_price < 0.01:
+            elif poc_price and abs(price - poc_price) / poc_price < poc_far_threshold_pct:
                 vp_bonus = 1.0
                 vp_detail = "POC_far"
             # 2. HVN (High Volume Node) — 成交量显著高于平均的节点
@@ -491,6 +559,19 @@ def identify_support_resistance(klines: list[dict], min_touches: float = 2.0,
                         vp_bonus = 0.5
                         vp_detail = "LVN"
                         break
+
+            # 4. VAH/VAL 边界加成（Value Area 区域）
+            # 与 POC/HVN 叠加：VAH/VAL 附近的位额外加分（温和版本）
+            if use_vah_val and vah_price > 0 and val_price > 0:
+                near_vah = abs(price - vah_price) / price < vah_val_near_threshold_pct
+                near_val = abs(price - val_price) / price < vah_val_near_threshold_pct
+                if near_vah or near_val:
+                    vp_bonus += vah_val_near_bonus
+                    vp_detail = "VAH_near" if near_vah else "VAL_near"
+                elif val_price <= price <= vah_price:
+                    vp_bonus += vah_val_inner_bonus
+                    if vp_detail == "none":
+                        vp_detail = "VA_inner"
 
             # 成交量爆发加成（仅最新一根）
             vol_surge_bonus = 1 if has_volume_surge else 0

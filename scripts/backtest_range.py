@@ -20,6 +20,7 @@ from quant_trader.core.config_loader import ConfigLoader
 from quant_trader.core.data_store import DataStore
 from quant_trader.main import PARENT_TIMEFRAME
 from quant_trader.strategies.s_r_levels import SupportResistanceStrategy
+from quant_trader.risk.manager import RiskManager
 
 FUNDING_DATA_DIR = Path(__file__).parent.parent / "quant_trader" / "data" / "funding_rates"
 
@@ -374,14 +375,19 @@ def run_backtest(symbol: str, timeframe: str, start: datetime, end: datetime, pa
                               for r in cur.fetchall()]
     cur.close()
     conn.close()
-    ds.close()
 
     if not klines:
+        ds.close()
         logger.warning("无数据")
         return None
 
     strategy = SupportResistanceStrategy("sol_test", params, config)
     engine = BacktestEngine()
+
+    # 加载风控配置（与实时代码保持一致）
+    config.load_risk()
+    risk_manager = RiskManager(config.risk, ds)
+
     parent_windows = _align_parent_klines(klines, parent_klines)
     grandparent_windows = _align_parent_klines(klines, grandparent_klines)
 
@@ -430,6 +436,11 @@ def run_backtest(symbol: str, timeframe: str, start: datetime, end: datetime, pa
             last = last_signal_time.get(sig.symbol, 0)
             if ts_epoch - last < cooldown_seconds:
                 continue
+            # 风控检查（与实时代码保持一致）
+            risk_result = risk_manager.check_and_adjust(sig)
+            if not risk_result["approved"]:
+                continue
+            sig.leverage = risk_result["leverage"]
             engine.execute_signal(symbol, sig.signal_type, sig.price, sig.stop_loss, sig.leverage, kline["timestamp"], metadata=sig.metadata)
             last_signal_time[sig.symbol] = ts_epoch
             break  # 每根 K 线只执行一个信号
@@ -439,6 +450,21 @@ def run_backtest(symbol: str, timeframe: str, start: datetime, end: datetime, pa
             engine._close_position(sym, klines[-1]["close"], "end_of_data", klines[-1])
 
     engine.strategy = strategy
+
+    # 同步 filter summary 到数据库（仅用于回测期间日志打印，结束后自清）
+    if hasattr(strategy, "get_filter_summary"):
+        filter_summary = strategy.get_filter_summary()
+        for direction, stats in filter_summary.items():
+            if stats.get("checked", 0) > 0:
+                ds.upsert_filter_stats(strategy.name, symbol, timeframe, direction, stats)
+        # 回测数据用完即弃，避免污染 status 命令的实盘统计
+        with ds._get_conn().cursor() as cur:
+            cur.execute(
+                "DELETE FROM filter_stats WHERE strategy_name = %s",
+                (strategy.name,),
+            )
+
+    ds.close()
     return engine
 
 
@@ -542,13 +568,14 @@ def main():
 
     # 逐笔明细
     print("\n逐笔交易明细:")
-    print(f"{'序号':<4} {'方向':<5} {'入场价':<10} {'出场价':<10} {'杠杆':<5} {'净利':<10} {'parent':<10} {'bias':<14} {'原因':<15} {'时间':<12}")
-    print("-" * 115)
+    print(f"{'序号':<4} {'方向':<5} {'入场价':<10} {'出场价':<10} {'杠杆':<5} {'净利':<10} {'parent':<10} {'bias':<14} {'原因':<15} {'入场时间':<12} {'出场时间':<12}")
+    print("-" * 128)
     for i, t in enumerate(engine.trades, 1):
-        ts = t["exit_time"].strftime("%m-%d %H:%M") if t["exit_time"] else ""
+        entry_ts = t["entry_time"].strftime("%m-%d %H:%M") if t.get("entry_time") else ""
+        exit_ts = t["exit_time"].strftime("%m-%d %H:%M") if t["exit_time"] else ""
         pt = t.get("parent_trend") or "None"
         bias = t.get("bias") or "None"
-        print(f"{i:<4} {t['side']:<5} {t['entry_price']:<10.2f} {t['exit_price']:<10.2f} {t['leverage']:<5}x {t['net_pnl']:<+10.2f} {pt:<10} {bias:<14} {t['reason']:<15} {ts:<12}")
+        print(f"{i:<4} {t['side']:<5} {t['entry_price']:<10.2f} {t['exit_price']:<10.2f} {t['leverage']:<5}x {t['net_pnl']:<+10.2f} {pt:<10} {bias:<14} {t['reason']:<15} {entry_ts:<12} {exit_ts:<12}")
 
 
 if __name__ == "__main__":
