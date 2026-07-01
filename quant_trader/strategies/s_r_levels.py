@@ -78,6 +78,8 @@ def detect_trend_with_parent(
     threshold_pct: float = 1.0,
     fast_period: int = 21,
     slow_period: int = 50,
+    trend_lookback: int | None = None,
+    parent_lookback: int | None = None,
 ) -> dict:
     """多周期趋势确认：结合当前和上级周期趋势判断交易偏向。
 
@@ -88,6 +90,8 @@ def detect_trend_with_parent(
         parent_klines: 上级周期 K 线（新→旧），可为 None
         require_parent_aligned: 是否要求上级 EMA 同向
         threshold_pct: EMA 间距阈值（%），低于此值视为震荡
+        trend_lookback: 当前周期趋势判断使用的 K 线数，None 表示使用全部
+        parent_lookback: 上级周期趋势判断使用的 K 线数，None 表示使用全部
 
     返回 dict:
         trend: 当前周期趋势 ("uptrend"/"downtrend"/"ranging")
@@ -100,6 +104,8 @@ def detect_trend_with_parent(
             - "neutral": 震荡或无上级数据，双向均可
         parent_aligned: 上级周期 EMA 是否同向（用于过滤）
     """
+    if trend_lookback is not None:
+        klines = klines[:trend_lookback]
     current = detect_trend(klines, threshold_pct=threshold_pct, fast_period=fast_period, slow_period=slow_period)
 
     if parent_klines is None or len(parent_klines) < 50:
@@ -125,6 +131,8 @@ def detect_trend_with_parent(
             "parent_aligned": None,
         }
 
+    if parent_lookback is not None:
+        parent_klines = parent_klines[:parent_lookback]
     parent = detect_trend(parent_klines, threshold_pct=threshold_pct, fast_period=fast_period, slow_period=slow_period)
     parent_aligned = parent["trend"] != "ranging"
 
@@ -557,7 +565,9 @@ class SupportResistanceStrategy(BaseStrategy):
         params = self.params
 
         # ---- S/R 检测参数 ----
-        lookback = params.get("lookback", 100)
+        sr_lookback = params.get("sr_lookback", params.get("lookback", 100))
+        trend_lookback = params.get("trend_lookback", None)
+        parent_lookback = params.get("parent_lookback", None)
         min_touches = params.get("min_touches", 3)  # v1.1: 升级为质量分阈值
         entry_threshold_pct = params.get("entry_threshold_pct", 0.5)
         secondary_min_touches = params.get("secondary_min_touches", 4)
@@ -684,6 +694,8 @@ class SupportResistanceStrategy(BaseStrategy):
             threshold_pct=ema_gap_threshold,
             fast_period=ema_fast,
             slow_period=ema_slow,
+            trend_lookback=trend_lookback,
+            parent_lookback=parent_lookback,
         )
         trend = trend_info["trend"]
         bias = trend_info["bias"]
@@ -769,7 +781,7 @@ class SupportResistanceStrategy(BaseStrategy):
         levels = identify_support_resistance(
             klines,
             min_touches=min_touches,
-            lookback=lookback,
+            lookback=sr_lookback,
             volume_surge_ratio=1.5,
             require_rejection=require_rejection,
             bias=bias,
@@ -944,7 +956,7 @@ class SupportResistanceStrategy(BaseStrategy):
             buy_levels = identify_support_resistance(
                 klines,
                 min_touches=touches,
-                lookback=lookback,
+                lookback=sr_lookback,
                 volume_surge_ratio=1.5,
                 require_rejection=require_rejection,
                 bias=bias,
@@ -1229,7 +1241,7 @@ class SupportResistanceStrategy(BaseStrategy):
             sell_levels = identify_support_resistance(
                 klines,
                 min_touches=touches,
-                lookback=lookback,
+                lookback=sr_lookback,
                 volume_surge_ratio=1.5,
                 require_rejection=require_rejection,
                 bias=bias,
@@ -1516,7 +1528,7 @@ class SupportResistanceStrategy(BaseStrategy):
                 struct_levels = identify_support_resistance(
                     klines,
                     min_touches=min_touches,
-                    lookback=lookback,
+                    lookback=sr_lookback,
                     volume_surge_ratio=1.5,
                     require_rejection=require_rejection,
                     bias=bias,

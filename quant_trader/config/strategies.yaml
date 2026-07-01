@@ -104,6 +104,9 @@ strategies:
   - 4h
   params:
     lookback: 100
+    sr_lookback: 140
+    trend_lookback: 80
+    parent_lookback: 70
     min_touches: 4.0
     stop_loss_pct: 1.5
     leverage: 5
