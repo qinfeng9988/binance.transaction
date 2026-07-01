@@ -35,6 +35,8 @@ class ExchangeConfig:
     db_name: str = "db_quant_trader"
     db_user: str = ""
     db_password: str = ""
+    status_host: str = "127.0.0.1"
+    status_port: int = 58080
 
 
 @dataclass
@@ -88,6 +90,7 @@ class ConfigLoader:
 
         binance = raw.get("binance", {})
         db = raw.get("database", {})
+        status = raw.get("status", {})
         self._exchange_cfg = ExchangeConfig(
             api_key=binance.get("api_key", ""),
             api_secret=binance.get("api_secret", ""),
@@ -99,6 +102,8 @@ class ConfigLoader:
             db_name=db.get("dbname", "db_quant_trader"),
             db_user=db.get("user", ""),
             db_password=db.get("password", ""),
+            status_host=status.get("host", "127.0.0.1"),
+            status_port=int(status.get("port", 58080)),
         )
         logger.info("已加载静态配置: exchanges.yaml (sandbox=%s)", self._exchange_cfg.sandbox)
         return self._exchange_cfg

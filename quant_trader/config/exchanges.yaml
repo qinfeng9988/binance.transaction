@@ -19,3 +19,8 @@ database:
   dbname: "db_quant_trader"
   user: "postgres"
   password: "123456"
+
+# Status HTTP service configuration
+status:
+  host: "127.0.0.1"
+  port: 58080
