@@ -11,6 +11,8 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from ..core.data_store import OrderRecord, PositionRecord
+
 logger = logging.getLogger(__name__)
 
 
@@ -19,14 +21,15 @@ class MockOrder:
     """模拟订单。"""
     order_id: str
     symbol: str
-    side: str
-    amount: float
+    side: str                      # "buy" 或 "sell"（内部使用，DB 用 quantity 正负表示）
+    amount: float                  # 成交数量（始终为正数）
     price: float
-    order_type: str
+    order_type: str                # "open" / "add" / "close" / "partial_close" / "stop_loss_close" / "take_profit_close"
     leverage: int = 1
-    status: str = "filled"       # 模拟单直接成交
+    status: str = "filled"         # 模拟单直接成交
     timestamp: datetime = field(default_factory=lambda: datetime.now(tz=timezone.utc))
     fee: float = 0.0
+    position_id: int | None = None # 关联持仓 ID
 
 
 @dataclass
@@ -43,6 +46,9 @@ class MockPosition:
     unrealized_pnl: float = 0.0
     realized_pnl: float = 0.0
     add_count: int = 0
+    position_id: int | None = None     # 数据库中的持仓 ID
+    closed_quantity: float = 0.0       # 累计已平仓数量
+    close_count: int = 0               # 平仓次数
 
 
 class PaperTradingEngine:
@@ -71,18 +77,21 @@ class PaperTradingEngine:
     def place_order(self, symbol: str, side: str, amount: float,
                     price: float, leverage: int = 1,
                     stop_loss: float = 0.0, data_store=None,
-                    metadata: dict | None = None) -> MockOrder | None:
+                    metadata: dict | None = None,
+                    order_type: str = "market") -> MockOrder | None:
         """模拟下单。
 
         模拟模式下市价单立即成交，限价单挂入等待成交。
+        新流程：先确认/创建 positions 记录拿到 position_id，再插 orders。
 
         参数:
             symbol: 交易对
             side: "buy" 或 "sell"
-            amount: 数量（合约时为张数/合约数）
+            amount: 数量（始终为正数）
             price: 成交价格
             leverage: 杠杆倍数
             stop_loss: 止损价
+            order_type: 订单类型提示，不传时由 _update_position 根据场景推断
 
         返回:
             MockOrder 对象，失败返回 None
@@ -110,12 +119,11 @@ class PaperTradingEngine:
             side=side,
             amount=amount,
             price=price,
-            order_type="market",
+            order_type=order_type,
             leverage=leverage,
             status="filled",
             fee=fee,
         )
-        self.orders.append(order)
 
         # 扣除手续费和保证金
         if self.default_type == "swap":
@@ -124,14 +132,45 @@ class PaperTradingEngine:
         else:
             self.balance -= (price * amount + fee)
 
-        # 更新或创建持仓
-        self._update_position(order, stop_loss, data_store, metadata=metadata)
+        # 更新或创建持仓，返回实际 order_type 和 position_id
+        order.order_type, order.position_id = self._update_position(
+            order, stop_loss, data_store, metadata=metadata
+        )
+
+        # 同步订单到数据库
+        if data_store:
+            data_store.insert_order(self._to_order_record(order))
+
+        self.orders.append(order)
 
         logger.info(
             "[模拟] %s %s %s 价格=%.2f 数量=%.4f 杠杆=%dx 手续费=%.2f",
             side.upper(), symbol, order.order_id, price, amount, leverage, fee,
         )
         return order
+
+    def _to_order_record(self, order: MockOrder) -> OrderRecord:
+        """把 MockOrder 转成 DataStore 的 OrderRecord。"""
+        # quantity 符号：开仓/加仓为正，平仓/减仓为负
+        if order.order_type in ("open", "add"):
+            signed_quantity = order.amount
+        else:
+            signed_quantity = -order.amount
+
+        return OrderRecord(
+            symbol=order.symbol,
+            price=order.price,
+            quantity=signed_quantity,
+            leverage=order.leverage,
+            timestamp=order.timestamp,
+            mode="paper",
+            position_id=order.position_id,
+            order_type=order.order_type,
+            fee=order.fee,
+            status=order.status,
+            order_id=order.order_id,
+            signal_id=None,
+        )
 
     def restore_from_db(self, data_store) -> None:
         """从数据库恢复持仓和余额状态。
@@ -142,7 +181,7 @@ class PaperTradingEngine:
         参数:
             data_store: DataStore 实例
         """
-        # 1. 加载所有历史订单，重建 order_counter 和余额
+        # 1. 加载所有历史订单，重建 order_counter
         with data_store._get_conn().cursor() as cur:
             cur.execute(
                 "SELECT id FROM orders WHERE mode = 'paper' ORDER BY id"
@@ -151,22 +190,49 @@ class PaperTradingEngine:
             if order_rows:
                 self._order_counter = order_rows[-1][0]  # 从最大 ID 继续
 
-        # 2. 加载已平仓记录，用于统计
+        # 2. 加载已平仓记录，用于统计（含手续费）
         with data_store._get_conn().cursor() as cur:
+            # 2a. 加载已平仓的 positions 记录
             cur.execute(
-                """SELECT symbol, side, entry_price, quantity, leverage,
-                          entry_time, exit_price, exit_time, pnl
-                   FROM positions WHERE status = 'closed'"""
+                """SELECT p.id, p.symbol, p.side, p.entry_price, p.closed_quantity,
+                          p.leverage, p.entry_time, p.exit_price, p.exit_time, p.pnl,
+                          p.close_count
+                   FROM positions p WHERE p.status = 'closed'"""
             )
             closed_rows = cur.fetchall()
             for r in closed_rows:
+                pos_id = r[0]
+                symbol = r[1]
+                side = r[2]
+                entry_price = float(r[3])
+                closed_qty = float(r[4])
+                leverage = r[5]
+                entry_time = r[6]
+                exit_price = float(r[7])
+                exit_time = r[8]
+                pnl = float(r[9])
+                close_count = r[10]
+
+                # 2b. 计算该持仓的总手续费
+                cur.execute(
+                    "SELECT COALESCE(SUM(fee), 0) FROM orders WHERE position_id = %s",
+                    (pos_id,)
+                )
+                total_fee = float(cur.fetchone()[0])
+
                 self.trades_closed.append({
-                    "symbol": r[0], "side": r[1],
-                    "entry_price": float(r[2]), "quantity": float(r[3]),
-                    "leverage": r[4], "entry_time": r[5],
-                    "exit_price": float(r[6]), "exit_time": r[7],
-                    "pnl": float(r[8]),
-                    "fee": 0.0,  # 手续费从 orders 表推算
+                    "symbol": symbol,
+                    "side": side,
+                    "entry_price": entry_price,
+                    "quantity": closed_qty,       # 总平仓数量
+                    "leverage": leverage,
+                    "entry_time": entry_time,
+                    "exit_price": exit_price,
+                    "exit_time": exit_time,
+                    "pnl": pnl,
+                    "fee": total_fee,
+                    "position_id": pos_id,
+                    "close_count": close_count,
                 })
 
         # 3. 从已平仓交易推算余额
@@ -187,6 +253,9 @@ class PaperTradingEngine:
                 current_price=pos.entry_price,  # 价格会在下一轮 K 线更新
                 stop_loss=pos.stop_loss,
                 entry_time=pos.entry_time,
+                position_id=pos.id,
+                closed_quantity=pos.closed_quantity,
+                close_count=pos.close_count,
             )
             self.positions[pos.symbol] = mock_pos
 
@@ -210,37 +279,15 @@ class PaperTradingEngine:
         else:
             logger.info("数据库中无未平仓记录，账户状态已重置")
 
-    def sync_position_to_db(self, data_store, symbol: str, exit_price: float, pnl: float):
-        """将平仓结果同步到数据库。
-
-        参数:
-            data_store: DataStore 实例
-            symbol: 交易对
-            exit_price: 平仓价格
-            pnl: 实现的盈亏
-        """
-        with data_store._get_conn().cursor() as cur:
-            cur.execute(
-                """SELECT id FROM positions
-                   WHERE symbol = %s AND status = 'open'
-                   ORDER BY entry_time DESC LIMIT 1""",
-                (symbol,)
-            )
-            row = cur.fetchone()
-            if row:
-                cur.execute(
-                    """UPDATE positions
-                       SET exit_price = %s, exit_time = NOW(), pnl = %s, status = 'closed'
-                       WHERE id = %s""",
-                    (exit_price, pnl, row[0])
-                )
-
-    def close_position(self, symbol: str, exit_price: float, data_store=None) -> float | None:
-        """平仓。
+    def close_position(self, symbol: str, exit_price: float, data_store=None,
+                       order_type: str = "close") -> float | None:
+        """全平。
 
         参数:
             symbol: 交易对
             exit_price: 平仓价格
+            data_store: DataStore 实例（可选，用于同步到 DB）
+            order_type: 订单类型，"close" / "stop_loss_close" / "take_profit_close"
 
         返回:
             实现的盈亏，无持仓则返回 None
@@ -260,10 +307,6 @@ class PaperTradingEngine:
         else:
             pnl = (entry_price - exit_price) * quantity
 
-        # 合约需要乘杠杆
-        if self.default_type == "swap":
-            pnl = pnl  # 盈亏已在数量中体现
-
         # 扣除平仓手续费
         exit_value = exit_price * quantity
         fee = exit_value * self.fee_rate
@@ -275,6 +318,21 @@ class PaperTradingEngine:
             self.balance += margin + net_pnl
         else:
             self.balance += exit_value - fee
+
+        # 更新持仓的累计统计
+        pos.closed_quantity += quantity
+        pos.close_count += 1
+        pos.realized_pnl += net_pnl
+
+        # 同步到数据库
+        if data_store and pos.position_id is not None:
+            data_store.close_position(
+                position_id=pos.position_id,
+                exit_price=exit_price,
+                closed_quantity=pos.closed_quantity,
+                pnl=pos.realized_pnl,
+                close_count=pos.close_count,
+            )
 
         # 记录已平仓
         self.trades_closed.append({
@@ -288,14 +346,16 @@ class PaperTradingEngine:
             "fee": fee,
             "entry_time": pos.entry_time,
             "exit_time": datetime.now(tz=timezone.utc),
+            "position_id": pos.position_id,
+            "order_type": order_type,
         })
 
         # 移除持仓
         del self.positions[symbol]
 
         logger.info(
-            "[模拟] 平仓 %s %s 入场=%.2f 出场=%.2f 盈亏=%.2f(净) 手续费=%.2f",
-            symbol, pos.side, entry_price, exit_price, net_pnl, fee,
+            "[模拟] 全平 %s %s 入场=%.2f 出场=%.2f 盈亏=%.2f(净) 手续费=%.2f order_type=%s",
+            symbol, pos.side, entry_price, exit_price, net_pnl, fee, order_type,
         )
         return net_pnl
 
@@ -324,9 +384,8 @@ class PaperTradingEngine:
                (pos.side == "sell" and current_price >= pos.stop_loss):
                 logger.info("[模拟] 触发止损: %s 现价=%.2f 止损=%.2f",
                             symbol, current_price, pos.stop_loss)
-                pnl = self.close_position(symbol, current_price, data_store)
-                if pnl is not None and data_store:
-                    self.sync_position_to_db(data_store, symbol, current_price, pnl)
+                pnl = self.close_position(symbol, current_price, data_store,
+                                          order_type="stop_loss_close")
 
     def get_position_count(self) -> int:
         """当前持仓数。"""
@@ -380,7 +439,8 @@ class PaperTradingEngine:
         return False
 
     def partial_close_position(self, symbol: str, close_price: float,
-                                close_ratio: float, data_store=None) -> float | None:
+                                close_ratio: float, data_store=None,
+                                signal_id: int = None) -> float | None:
         """部分平仓指定比例的仓位。
 
         返回实现盈亏，无持仓或已全部平仓返回 None。
@@ -411,10 +471,55 @@ class PaperTradingEngine:
             self.balance += close_price * close_qty - fee
 
         remaining = qty - close_qty
+
+        # 更新持仓的累计统计
+        pos.closed_quantity += close_qty
+        pos.close_count += 1
+        pos.realized_pnl += net_pnl
+
+        # 生成订单号并写入 orders 表
+        self._order_counter += 1
+        order_id = f"PAPER-{self._order_counter}"
+        if data_store and pos.position_id is not None:
+            data_store.insert_order(OrderRecord(
+                symbol=symbol,
+                price=close_price,
+                quantity=-close_qty,  # 减仓为负
+                leverage=pos.leverage,
+                timestamp=datetime.now(tz=timezone.utc),
+                mode="paper",
+                position_id=pos.position_id,
+                order_type="partial_close",
+                fee=fee,
+                status="filled",
+                order_id=order_id,
+                signal_id=signal_id,
+            ))
+
         if remaining <= 1e-12:
+            # 全部平掉了，同步到 DB 并删除持仓
+            if data_store and pos.position_id is not None:
+                data_store.close_position(
+                    position_id=pos.position_id,
+                    exit_price=close_price,
+                    closed_quantity=pos.closed_quantity,
+                    pnl=pos.realized_pnl,
+                    close_count=pos.close_count,
+                )
             del self.positions[symbol]
         else:
+            # 还有剩余，更新剩余数量并同步到 DB
             pos.quantity = remaining
+            if data_store and pos.position_id is not None:
+                data_store.update_position(
+                    symbol=symbol,
+                    quantity=remaining,
+                    entry_price=entry,
+                    stop_loss=pos.stop_loss,
+                    closed_quantity=pos.closed_quantity,
+                    close_count=pos.close_count,
+                    pnl=pos.realized_pnl,
+                )
 
         self.trades_closed.append({
             "symbol": symbol,
@@ -427,6 +532,8 @@ class PaperTradingEngine:
             "fee": fee,
             "entry_time": pos.entry_time,
             "exit_time": datetime.now(tz=timezone.utc),
+            "position_id": pos.position_id,
+            "order_type": "partial_close",
         })
 
         logger.info(
@@ -436,20 +543,24 @@ class PaperTradingEngine:
         return net_pnl
 
     def _update_position(self, order: MockOrder, stop_loss: float, data_store=None,
-                         metadata: dict | None = None):
+                         metadata: dict | None = None) -> tuple[str, int | None]:
         """更新持仓（开仓或加仓或平仓）。
 
-        如果下单方向与现有持仓相反，则执行平仓。
+        返回 (order_type, position_id)。
         """
         if order.symbol in self.positions:
             existing = self.positions[order.symbol]
             # 反向单 = 平仓
             if order.side != existing.side:
-                # 全部平仓（当前实现为全部平仓）
-                pnl = self.close_position(order.symbol, order.price, data_store)
-                if pnl is not None and data_store:
-                    self.sync_position_to_db(data_store, order.symbol, order.price, pnl)
-                return
+                position_id = existing.position_id
+                close_type = order.order_type if order.order_type in (
+                    "close", "stop_loss_close", "take_profit_close"
+                ) else "close"
+                self.close_position(
+                    order.symbol, order.price, data_store,
+                    order_type=close_type,
+                )
+                return close_type, position_id
             # 同向单 = 加仓：检查最大加仓次数
             max_additions = metadata.get("max_additions", 1) if metadata else 1
             if existing.add_count >= max_additions:
@@ -457,7 +568,7 @@ class PaperTradingEngine:
                     "[模拟] 忽略 %s %s 同向加仓: 已达最大次数 %d/%d",
                     order.symbol, order.side, existing.add_count, max_additions,
                 )
-                return
+                return "ignored", existing.position_id
             # 同向单 = 加仓：计算加权平均价
             total_qty = existing.quantity + order.amount
             avg_price = (existing.entry_price * existing.quantity + order.price * order.amount) / total_qty
@@ -465,20 +576,36 @@ class PaperTradingEngine:
             existing.quantity = total_qty
             existing.add_count += 1
             # 同步到数据库
-            if data_store:
+            if data_store and existing.position_id is not None:
                 data_store.update_position(
                     symbol=order.symbol,
                     quantity=total_qty,
                     entry_price=avg_price,
                     stop_loss=stop_loss,
                 )
-        else:
-            self.positions[order.symbol] = MockPosition(
+            return "add", existing.position_id
+
+        # 新仓位
+        position_id = None
+        if data_store:
+            position_id = data_store.open_position(PositionRecord(
                 symbol=order.symbol,
                 side=order.side,
                 entry_price=order.price,
                 quantity=order.amount,
                 leverage=order.leverage,
-                current_price=order.price,
+                entry_time=datetime.now(tz=timezone.utc),
                 stop_loss=stop_loss,
-            )
+                status="open",
+            ))
+        self.positions[order.symbol] = MockPosition(
+            symbol=order.symbol,
+            side=order.side,
+            entry_price=order.price,
+            quantity=order.amount,
+            leverage=order.leverage,
+            current_price=order.price,
+            stop_loss=stop_loss,
+            position_id=position_id,
+        )
+        return "open", position_id
