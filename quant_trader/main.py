@@ -9,7 +9,9 @@ from pathlib import Path
 
 from .core.config_loader import ConfigLoader
 from .core.data_store import DataStore, OrderRecord, SignalRecord
+from .core.kline_manager import KlineDataManager
 from .core.logger import setup_logging
+from .core.status_server import StatusServer
 from .exchange.binance_adapter import BinanceAdapter
 from .exchange.paper_trading import PaperTradingEngine
 from .models import Signal
@@ -49,10 +51,11 @@ class Engine:
         self.exchange: BinanceAdapter | None = None
         self.paper_engine: PaperTradingEngine | None = None
         self.risk_manager: RiskManager | None = None
+        self.status_server: StatusServer | None = None
         self._running = False
         self._paused = False
         self._strategy_cache: dict | None = None
-        self._klines_cache: dict[tuple[str, str], list[dict]] = {}  # (symbol, timeframe) → 最近 K 线
+        self.kline_manager: KlineDataManager | None = None
         self._last_signal_time: dict[str, float] = {}  # symbol → 最后处理信号的时间戳（epoch秒）
         self._signal_cooldown = 220                      # 同币种最短信号间隔（秒），与回测保持一致
         self._funding_rate_cache: dict[str, tuple[float, float]] = {}  # symbol → (rate_pct, timestamp)
@@ -519,6 +522,10 @@ class Engine:
             logger.info("总手续费:    %.2f USDT", summary["total_fees"])
             logger.info("收益率:      %.2f%%", summary["return_pct"])
             logger.info("==================================")
+
+        # 停止状态 HTTP 服务
+        if self.status_server:
+            await self.status_server.stop()
 
         self.config.stop_watching()
         if self.exchange:
