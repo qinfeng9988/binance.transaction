@@ -58,7 +58,15 @@
       "Bash(openspec-cn archive *)",
       "Bash(echo \"PID:$!\")",
       "Bash(awk '{print $5, $NF}')",
-      "Bash(awk '{print $5}')"
+      "Bash(awk '{print $5}')",
+      "Bash(awk '{print $1, $2}')",
+      "Bash(awk -F'[ ]' '{print substr\\($2,1,2\\)}')",
+      "Bash(echo \"EXIT_CODE=$?\")",
+      "Bash(awk '{print $2}')",
+      "Bash(kill -INT 12027)",
+      "Bash(kill -INT 88026)",
+      "Bash(awk -F: '$1 > 1805 {print}')",
+      "Bash(grep -E \"\\\\.py$\")"
     ]
   }
 }
