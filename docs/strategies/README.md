@@ -66,7 +66,9 @@ docs/strategies/
 |------|------|---------|
 | [00_meta.md](current/00_meta.md) | 版本元信息 | — |
 | [01_risk_policy.md](current/01_risk_policy.md) | 全局风控策略 | — |
-| [02_support_resistance.md](current/02_support_resistance.md) | 支撑/阻力位多周期趋势确认策略 | — |
+| [02_support_resistance.md](current/02_support_resistance.md) | 支撑/阻力位多周期趋势确认策略（BTC/ETH/SOL） | — |
+| [03_eth_5m.md](current/03_eth_5m.md) | ETH/USDT 5m 短周期策略 | 2026-07-01 |
+| [04_paxg_ema.md](current/04_paxg_ema.md) | PAXG/USDT 双均线趋势跟踪策略 | 2026-07-01 |
 
 ## 快速参考
 

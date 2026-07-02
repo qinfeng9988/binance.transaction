@@ -16,7 +16,8 @@ quant_trader/
 │   └── paper_trading.py           # 模拟交易引擎
 ├── strategies/
 │   ├── base.py                    # 策略基类
-│   └── s_r_levels.py              # 支撑/压力位策略
+│   ├── s_r_levels.py              # 支撑/压力位策略（BTC/ETH/SOL）
+│   └── bollinger_bands.py         # 双均线趋势策略（PAXG）
 ├── technical/
 │   ├── indicators.py              # 技术指标（RSI/EMA/MACD/布林带）
 │   └── support_resistance.py      # 支撑/压力位识别
@@ -122,16 +123,51 @@ database:
 mode: "paper"              # 运行模式：paper | live_confirm | live_auto
 
 strategies:
-  - name: support_resistance
+  - name: support_resistance_btc
     enabled: true
-    symbols: ["BTC/USDT", "ETH/USDT"]
+    symbols: ["BTC/USDT"]
     timeframes: ["5m", "1h", "4h"]
     params:
-      lookback: 100           # 回看 K 线根数
-      min_touches: 2          # 最少触碰次数
-      stop_loss_pct: 1.5      # 止损百分比
-      entry_threshold_pct: 0.5  # 入场阈值（价格距支撑/压力位的百分比）
-      leverage: 5             # 杠杆倍数
+      lookback: 100
+      min_touches: 5.3
+      stop_loss_pct: 2.2
+      leverage: 5
+      entry_threshold_pct: 0.35
+      ...
+
+  - name: support_resistance_eth
+    enabled: true
+    symbols: ["ETH/USDT"]
+    timeframes: ["1h", "4h"]
+    params:
+      lookback: 100
+      min_touches: 4.0
+      stop_loss_pct: 1.5
+      leverage: 5
+      entry_threshold_pct: 0.7
+      ...
+
+  - name: support_resistance_eth_5m
+    enabled: true
+    symbols: ["ETH/USDT"]
+    timeframes: ["5m", "1h", "4h"]
+    params:
+      lookback: 288
+      sr_lookback: 288
+      entry_threshold_pct: 0.5
+      volume_burst_ratio: 1.3
+      ...
+
+  - name: bollinger_bands_paxg
+    enabled: true
+    symbols: ["PAXG/USDT"]
+    timeframes: ["1h"]
+    params:
+      ema_fast_period: 20
+      ema_slow_period: 50
+      atr_multiplier: 1.5
+      leverage: 3
+      ...
 ```
 
 **生效方式**：修改后 **热重载**（约 1 秒内自动生效，无需重启）
@@ -370,11 +406,17 @@ class MyStrategy(BaseStrategy):
 2. 在 `main.py` 的 `_load_strategies()` 方法中注册策略：
 
 ```python
-from strategies.my_strategy import MyStrategy
+from strategies.s_r_levels import SupportResistanceStrategy
+from strategies.bollinger_bands import BollingerBandsStrategy
 
 strategy_registry = {
     "support_resistance": SupportResistanceStrategy,
-    "my_strategy": MyStrategy,  # 添加你的策略
+    "support_resistance_btc": SupportResistanceStrategy,
+    "support_resistance_eth": SupportResistanceStrategy,
+    "support_resistance_eth_5m": SupportResistanceStrategy,
+    "support_resistance_sol": SupportResistanceStrategy,
+    "support_resistance_paxg": SupportResistanceStrategy,
+    "bollinger_bands_paxg": BollingerBandsStrategy,  # PAXG 双均线策略
 }
 ```
 
@@ -487,13 +529,25 @@ binance:
 | `exchange/binance_adapter.py` | Binance API 封装（ccxt 同步 + 线程池） |
 | `exchange/paper_trading.py` | 模拟交易引擎（余额/下单/持仓/盈亏/数据库恢复） |
 | `strategies/base.py` | 策略基类 |
-| `strategies/s_r_levels.py` | 支撑/压力位交易策略 |
+| `strategies/s_r_levels.py` | 支撑/压力位策略（BTC/ETH/SOL） |
+| `strategies/bollinger_bands.py` | 双均线趋势策略（PAXG） |
 | `technical/indicators.py` | 技术指标（RSI/EMA/MACD/布林带） |
 | `technical/support_resistance.py` | 支撑/压力识别 + 成交量分布 |
 | `risk/manager.py` | 风控管理器（止损/杠杆/仓位/日亏损） |
 | `backtest/runner.py` | 回测引擎（backtesting.py 封装） |
+| `scripts/backtest_range.py` | 指定日期范围回测脚本 |
 
 ---
+
+## 策略文档
+
+详细策略文档位于 `docs/strategies/` 目录：
+
+| 文档 | 说明 |
+|------|------|
+| [docs/strategies/current/02_support_resistance.md](docs/strategies/current/02_support_resistance.md) | BTC/ETH/SOL 支撑/阻力位策略（v1.5.0） |
+| [docs/strategies/current/03_eth_5m.md](docs/strategies/current/03_eth_5m.md) | ETH/USDT 5m 短周期策略 |
+| [docs/strategies/current/04_paxg_ema.md](docs/strategies/current/04_paxg_ema.md) | PAXG/USDT 双均线趋势策略 |
 
 ## 常见问题
 
@@ -509,6 +563,26 @@ binance:
 
 ### Q: K 线数据如何获取？
 程序启动后自动从 Binance 拉取，并存入数据库。每次运行只拉取增量数据（基于最新时间戳）。
+
+### Q: 如何拉取历史数据用于回测？
+
+```bash
+# 拉取所有币种的历史数据
+python scripts/fetch_history.py --all --days 180
+
+# 或单独拉取某个币种
+python scripts/fetch_history.py --symbol PAXG/USDT --timeframe 1h --days 180
+```
+
+### Q: 如何进行回测？
+
+```bash
+# 指定日期范围回测
+python scripts/backtest_range.py --symbol ETH/USDT --timeframe 1h --start 2026-01-01 --end 2026-06-30
+
+# 指定策略回测（用于多策略匹配同一币种时）
+python scripts/backtest_range.py --symbol PAXG/USDT --timeframe 1h --start 2026-01-01 --end 2026-06-30 --strategy bollinger_bands_paxg
+```
 
 ### Q: 如何知道程序是否在运行？
 

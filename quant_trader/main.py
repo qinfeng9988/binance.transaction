@@ -104,6 +104,16 @@ class Engine:
         )
         self.exchange.connect()
 
+        # 初始化 K 线数据管理器
+        self.kline_manager = KlineDataManager(self.exchange, self.data_store)
+
+        # 初始化状态 HTTP 服务
+        self.status_server = StatusServer(
+            self,
+            host=exchange_cfg.status_host,
+            port=exchange_cfg.status_port,
+        )
+
         # 启动配置文件热重载监听
         self.config.start_watching(on_change=self._on_config_change)
 
@@ -147,40 +157,58 @@ class Engine:
         return None
 
     async def run(self):
-        """启动引擎，并行运行所有策略周期。"""
+        """启动引擎，并行运行 K 线拉取和策略调度。"""
         self._running = True
         logger.info("引擎已启动")
 
-        # 收集所有 (策略, 币种, 周期) 组合
-        self._load_strategies()  # 预热缓存
-        tasks = []
+        # 预热策略缓存
+        self._load_strategies()
 
-        seen: set[tuple[str, str, str]] = set()
+        # 收集所有需要去重的 (symbol, timeframe) 组合
+        symbol_timeframes: set[tuple[str, str]] = set()
+        strategy_configs: list[tuple[str, str, str]] = []  # (strategy_name, symbol, timeframe)
+
         for strategy in self.config.strategies.strategies:
             if not strategy.enabled:
                 continue
             for symbol in strategy.symbols:
                 for tf in strategy.timeframes:
-                    key = (strategy.name, symbol, tf)
-                    if key not in seen:
-                        seen.add(key)
-                        tasks.append(self._run_cycle(strategy.name, symbol, tf))
+                    symbol_timeframes.add((symbol, tf))
+                    strategy_configs.append((strategy.name, symbol, tf))
 
-        # 错开各周期的启动时间（随机延迟），避免多周期在同一时刻对同一币种发单冲突
-        for i, task in enumerate(tasks):
+        # 先启动状态 HTTP 服务
+        await self.status_server.start()
+
+        # 启动 K 线拉取任务
+        kline_task = asyncio.create_task(
+            self.kline_manager.start(symbol_timeframes)
+        )
+
+        # 启动策略执行任务
+        strategy_tasks = []
+        for strategy_name, symbol, timeframe in strategy_configs:
+            strategy_tasks.append(
+                self._run_strategy_cycle(strategy_name, symbol, timeframe)
+            )
+
+        # 错开各策略的启动时间（随机延迟），避免多策略在同一时刻对同一币种发单冲突
+        for i, task in enumerate(strategy_tasks):
             if i > 0:
                 await asyncio.sleep(random.uniform(2, 8))
 
-        # 并发运行所有周期任务
-        await asyncio.gather(*tasks, return_exceptions=True)
+        # 并发运行所有任务
+        await asyncio.gather(kline_task, *strategy_tasks, return_exceptions=True)
 
-    async def _run_cycle(self, strategy_name: str, symbol: str, timeframe: str):
-        """单个策略+币种+周期的循环执行。执行时间锚定到K线收盘后，确保数据完整。"""
+    async def _run_strategy_cycle(self, strategy_name: str, symbol: str, timeframe: str):
+        """单个策略+币种+周期的循环执行。订阅 K 线更新事件，等待通知后执行策略。"""
         interval = TIMEFRAME_SECONDS.get(timeframe, 300)
-        logger.info("周期已启动: %s %s %s (间隔=%d秒)", strategy_name, symbol, timeframe, interval)
+        logger.info("策略周期已启动: %s %s %s (间隔=%d秒)", strategy_name, symbol, timeframe, interval)
+
+        # 订阅 K 线更新事件
+        kline_queue = self.kline_manager.subscribe(symbol, timeframe)
+        logger.info("策略 %s 已订阅 %s %s K 线更新", strategy_name, symbol, timeframe)
 
         while self._running:
-            loop_start = _time.time()
             try:
                 # 检查紧急暂停
                 if self._is_paused():
@@ -189,43 +217,44 @@ class Engine:
                     continue
                 self._paused = False
 
-                # 拉取最新 K 线（需 >= lookback + right_swing 才能完整识别 S/R 位）
-                klines = await self.exchange.fetch_ohlcv(symbol, timeframe, limit=150)
-                if not klines:
-                    logger.warning("无 K 线数据: %s %s", symbol, timeframe)
-                    await asyncio.sleep(interval)
+                # 等待 K 线更新通知（最多等待 interval 秒）
+                try:
+                    klines = await asyncio.wait_for(kline_queue.get(), timeout=interval)
+                except asyncio.TimeoutError:
+                    logger.debug("等待 K 线更新超时: %s %s", symbol, timeframe)
                     continue
 
-                # 反转：ccxt 返回最旧在前，策略需要最新在前
-                klines.reverse()
-
-                # 缓存 K 线数据（供多周期趋势确认使用）
-                self._klines_cache[(symbol, timeframe)] = klines
-
-                # 存入数据库
-                self._store_klines(klines, symbol, timeframe)
+                if not klines:
+                    logger.warning("收到空 K 线数据: %s %s", symbol, timeframe)
+                    continue
 
                 # 更新模拟持仓价格（触发止损检查）—— 始终使用最新价保持实时性
-                current_price = klines[0]["close"]  # 反转后 klines[0] 是最新K线
+                current_price = klines[0]["close"]  # klines[0] 是当前正在形成的K线
                 self.paper_engine.update_prices(symbol, current_price, self.data_store)
 
                 # 判断最新K线是否已完成（用于决定是否执行策略）
+                # klines[0] 是当前正在形成的K线，klines[1] 是上一根已收盘K线
                 # K线时间戳是开盘时间，收盘时间 = 开盘时间 + interval
-                last_kline_open_ms = klines[0]["timestamp"]
+                if len(klines) < 2:
+                    logger.debug("K线数据不足，跳过策略执行: %s %s", symbol, timeframe)
+                    continue
+
+                last_kline_open_ms = klines[1]["timestamp"]
                 last_kline_close_ms = last_kline_open_ms + interval * 1000
-                now_ms = int(loop_start * 1000)
-                # 给交易所数据留5秒缓冲，确保K线已完全形成
-                kline_fully_formed = now_ms >= last_kline_close_ms + 5000
+                now_ms = int(_time.time() * 1000)
+                # 给交易所数据留1秒缓冲，确保K线已完全形成
+                kline_fully_formed = now_ms >= last_kline_close_ms + 1000
 
                 # 执行策略 — 只在K线完成后执行，确保volume等数据完整
                 strategy = self._get_strategy(strategy_name)
                 if strategy and kline_fully_formed:
                     # 获取上级周期 K 线（多周期趋势确认）
                     parent_tf = PARENT_TIMEFRAME.get(timeframe)
-                    parent_klines = self._klines_cache.get((symbol, parent_tf)) if parent_tf else None
+                    parent_klines = self.kline_manager.get_klines(symbol, parent_tf) if parent_tf else None
                     # 获取当前 funding rate（带缓存）
                     funding_rate = await self._get_funding_rate(symbol)
-                    signals = strategy.on_bar(symbol, timeframe, klines,
+                    # 排除当前正在形成的K线，策略只跑在已收盘K线上
+                    signals = strategy.on_bar(symbol, timeframe, klines[1:],
                                               self.paper_engine.positions.values(),
                                               parent_klines=parent_klines,
                                               funding_rate=funding_rate)
@@ -240,10 +269,10 @@ class Engine:
                         break  # 每根K线只处理一个信号，与回测保持一致
                 elif strategy and not kline_fully_formed:
                     logger.debug(
-                        "跳过策略执行 %s %s: 最新K线尚未完成 (开盘=%s, 需>=收盘+5s=%s)",
+                        "跳过策略执行 %s %s: 上一根K线尚未完成 (开盘=%s, 需>=收盘+1s=%s)",
                         symbol, timeframe,
                         datetime.fromtimestamp(last_kline_open_ms / 1000, tz=timezone.utc).strftime("%H:%M:%S"),
-                        datetime.fromtimestamp((last_kline_close_ms + 5000) / 1000, tz=timezone.utc).strftime("%H:%M:%S"),
+                        datetime.fromtimestamp((last_kline_close_ms + 1000) / 1000, tz=timezone.utc).strftime("%H:%M:%S"),
                     )
 
                 # 定期打印账户概览（每 10 个周期）
@@ -276,13 +305,7 @@ class Engine:
                     )
 
             except Exception:
-                logger.exception("周期执行异常: %s %s %s", strategy_name, symbol, timeframe)
-
-            # 对齐到下一个K线收盘后5秒执行
-            now = _time.time()
-            next_execution = ((int(now) // interval) + 1) * interval + 5
-            sleep_time = max(5, next_execution - now)
-            await asyncio.sleep(sleep_time)
+                logger.exception("策略周期执行异常: %s %s %s", strategy_name, symbol, timeframe)
 
     async def _handle_signal(self, signal: Signal):
         """处理策略信号：记录、风控、执行。"""
@@ -324,6 +347,7 @@ class Engine:
             if self.paper_engine:
                 net_pnl = self.paper_engine.partial_close_position(
                     signal.symbol, signal.price, signal.close_ratio, self.data_store,
+                    signal_id=signal_id,
                 )
                 if net_pnl is not None:
                     logger.info(
@@ -377,9 +401,6 @@ class Engine:
 
     def _execute_paper_trade(self, signal: Signal, signal_id: int = None):
         """模拟交易执行。"""
-        from .core.data_store import PositionRecord
-        from datetime import datetime, timezone
-
         # 计算下单数量（默认用总资金的 10%）
         position_value = self.paper_engine.balance * 0.1
         quantity = position_value / signal.price
@@ -388,71 +409,28 @@ class Engine:
         existing_pos = self.paper_engine.positions.get(signal.symbol)
         is_closing = existing_pos is not None and signal.signal_type != existing_pos.side
 
-        if is_closing:
-            # 反向信号 = 平仓，不需要新建持仓记录（由 sync_position_to_db 处理）
-            order = self.paper_engine.place_order(
-                symbol=signal.symbol,
-                side=signal.signal_type,
-                amount=quantity,
-                price=signal.price,
-                leverage=signal.leverage,
-                stop_loss=signal.stop_loss,
-                data_store=self.data_store,
-                metadata=signal.metadata,
-            )
-            if order:
-                self.data_store.insert_order(OrderRecord(
-                    symbol=signal.symbol,
-                    side=signal.signal_type,
-                    price=signal.price,
-                    quantity=existing_pos.quantity,  # 平仓数量为现有持仓数量
-                    leverage=signal.leverage,
-                    timestamp=signal.timestamp,
-                    mode="paper",
-                    order_id=order.order_id,
-                    signal_id=signal_id,
-                ))
-        else:
-            # 开仓或加仓
-            order = self.paper_engine.place_order(
-                symbol=signal.symbol,
-                side=signal.signal_type,
-                amount=quantity,
-                price=signal.price,
-                leverage=signal.leverage,
-                stop_loss=signal.stop_loss,
-                data_store=self.data_store,
-                metadata=signal.metadata,
-            )
+        # place_order 内部会自动同步 positions 和 orders 表
+        order = self.paper_engine.place_order(
+            symbol=signal.symbol,
+            side=signal.signal_type,
+            amount=quantity,
+            price=signal.price,
+            leverage=signal.leverage,
+            stop_loss=signal.stop_loss,
+            data_store=self.data_store,
+            metadata=signal.metadata,
+            order_type="close" if is_closing else None,
+        )
 
-            if order:
-                # 记录到数据库 - 订单
-                order_db_id = self.data_store.insert_order(OrderRecord(
-                    symbol=signal.symbol,
-                    side=signal.signal_type,
-                    price=signal.price,
-                    quantity=quantity,
-                    leverage=signal.leverage,
-                    timestamp=signal.timestamp,
-                    mode="paper",
-                    order_id=order.order_id,
-                    signal_id=signal_id,
-                ))
-
-                # 如果是新建持仓（非加仓），写入持仓记录到数据库
-                if existing_pos is None:
-                    pos = self.paper_engine.positions.get(signal.symbol)
-                    if pos:
-                        self.data_store.open_position(PositionRecord(
-                            symbol=signal.symbol,
-                            side=signal.signal_type,
-                            entry_price=signal.price,
-                            quantity=quantity,
-                            leverage=signal.leverage,
-                            entry_time=datetime.now(tz=timezone.utc),
-                            stop_loss=signal.stop_loss,
-                            status="open",
-                        ), open_order_id=order_db_id)
+        if order and signal_id is not None:
+            # 回填 orders 表的 signal_id（place_order 时未知）
+            from .core.data_store import OrderRecord
+            # 通过 order_id 更新 signal_id
+            with self.data_store._get_conn().cursor() as cur:
+                cur.execute(
+                    "UPDATE orders SET signal_id = %s WHERE order_id = %s",
+                    (signal_id, order.order_id),
+                )
 
         trade_logger = logging.getLogger("trades")
         trade_logger.info(
@@ -473,27 +451,10 @@ class Engine:
             quantity, signal.leverage,
         )
 
-    def _store_klines(self, klines: list[dict], symbol: str, timeframe: str):
-        """将 K 线数据写入数据库。"""
-        from .core.data_store import KlineRecord
-        records = [
-            KlineRecord(
-                symbol=symbol,
-                timeframe=timeframe,
-                timestamp=datetime.fromtimestamp(k["timestamp"] / 1000, tz=timezone.utc),
-                open=k["open"],
-                high=k["high"],
-                low=k["low"],
-                close=k["close"],
-                volume=k["volume"],
-            )
-            for k in klines
-        ]
-        self.data_store.insert_klines(records)
-
     def _load_strategies(self) -> dict:
         """根据配置实例化策略对象。"""
         from .strategies.s_r_levels import SupportResistanceStrategy
+        from .strategies.bollinger_bands import BollingerBandsStrategy
 
         # 策略注册表：名称 -> 策略类
         # 多个币种策略可映射到同一个策略类，通过不同参数区分
@@ -501,8 +462,10 @@ class Engine:
             "support_resistance": SupportResistanceStrategy,
             "support_resistance_btc": SupportResistanceStrategy,
             "support_resistance_eth": SupportResistanceStrategy,
+            "support_resistance_eth_5m": SupportResistanceStrategy,
             "support_resistance_sol": SupportResistanceStrategy,
             "support_resistance_paxg": SupportResistanceStrategy,
+            "bollinger_bands_paxg": BollingerBandsStrategy,
         }
 
         result = {}
