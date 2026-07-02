@@ -20,6 +20,7 @@ from quant_trader.core.config_loader import ConfigLoader
 from quant_trader.core.data_store import DataStore
 from quant_trader.main import PARENT_TIMEFRAME
 from quant_trader.strategies.s_r_levels import SupportResistanceStrategy
+from quant_trader.strategies.bollinger_bands import BollingerBandsStrategy
 from quant_trader.risk.manager import RiskManager
 
 FUNDING_DATA_DIR = Path(__file__).parent.parent / "quant_trader" / "data" / "funding_rates"
@@ -292,7 +293,8 @@ class BacktestEngine:
         }
 
 
-def _align_parent_klines(klines_chrono: list[dict], parent_klines_chrono: list[dict]) -> list[list[dict] | None]:
+def _align_parent_klines(klines_chrono: list[dict], parent_klines_chrono: list[dict],
+                         parent_lookback: int | None = None) -> list[list[dict] | None]:
     parent_idx = 0
     parent_windows: list[list[dict] | None] = []
     n_parent = len(parent_klines_chrono)
@@ -303,13 +305,14 @@ def _align_parent_klines(klines_chrono: list[dict], parent_klines_chrono: list[d
         if parent_idx == 0:
             parent_windows.append(None)
         else:
-            window = parent_klines_chrono[max(0, parent_idx - 200):parent_idx]
+            start_idx = 0 if parent_lookback is None else max(0, parent_idx - parent_lookback)
+            window = parent_klines_chrono[start_idx:parent_idx]
             # 转为 新→旧（与实时引擎及 backtest.py 一致）
             parent_windows.append(list(reversed(window)))
     return parent_windows
 
 
-def run_backtest(symbol: str, timeframe: str, start: datetime, end: datetime, params: dict):
+def run_backtest(symbol: str, timeframe: str, start: datetime, end: datetime, params: dict, strategy_name: str = "default"):
     config = ConfigLoader()
     exchange_cfg = config.load_static()
     ds = DataStore(host=exchange_cfg.db_host, port=exchange_cfg.db_port,
@@ -336,7 +339,7 @@ def run_backtest(symbol: str, timeframe: str, start: datetime, end: datetime, pa
 
     # ---- parent / grandparent 数据需要向前扩展预热期 ----
     # detect_trend 需要至少 50 根 K 线（EMA50），但 EMA 计算需要更长的历史才稳定。
-    # _align_parent_klines 最多取 200 根，因此预热期至少覆盖 200 根 parent K 线。
+    # _align_parent_klines 默认取 parent_lookback 根（默认 70），因此预热期至少覆盖 70 根 parent K 线。
     _CANDLES_PER_DAY = {"5m": 288, "1h": 24, "4h": 6, "1d": 1}
     _PARENT_WARMUP_CANDLES = 60  # 与 backtest.py 保持一致，再额外加 5 天缓冲
 
@@ -381,15 +384,21 @@ def run_backtest(symbol: str, timeframe: str, start: datetime, end: datetime, pa
         logger.warning("无数据")
         return None
 
-    strategy = SupportResistanceStrategy("sol_test", params, config)
+    # 根据策略名称选择策略类
+    strategy_registry = {
+        "bollinger_bands_paxg": BollingerBandsStrategy,
+    }
+    strategy_cls = strategy_registry.get(strategy_name, SupportResistanceStrategy)
+    strategy = strategy_cls(strategy_name, params, config)
     engine = BacktestEngine()
 
     # 加载风控配置（与实时代码保持一致）
     config.load_risk()
     risk_manager = RiskManager(config.risk, ds)
 
-    parent_windows = _align_parent_klines(klines, parent_klines)
-    grandparent_windows = _align_parent_klines(klines, grandparent_klines)
+    parent_lookback = params.get("parent_lookback", None)
+    parent_windows = _align_parent_klines(klines, parent_klines, parent_lookback=parent_lookback)
+    grandparent_windows = _align_parent_klines(klines, grandparent_klines, parent_lookback=parent_lookback)
 
     # 加载 funding rate 缓存
     funding_records = _load_funding_rates(symbol)
@@ -433,6 +442,11 @@ def run_backtest(symbol: str, timeframe: str, start: datetime, end: datetime, pa
                             close_ratio=sig.close_ratio, reason=f"partial_tp_{level_id}", kline=kline,
                         )
                 continue
+            if sig.action == "close":
+                existing = engine.positions.get(symbol)
+                if existing:
+                    engine._close_position(symbol, sig.price, sig.metadata.get("reason", "close_signal"), kline)
+                continue
             last = last_signal_time.get(sig.symbol, 0)
             if ts_epoch - last < cooldown_seconds:
                 continue
@@ -474,6 +488,7 @@ def main():
     parser.add_argument("--timeframe", required=True)
     parser.add_argument("--start", required=True, help="起始日期 YYYY-MM-DD")
     parser.add_argument("--end", required=True, help="结束日期 YYYY-MM-DD")
+    parser.add_argument("--strategy", default=None, help="指定策略名称（可选）")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -484,15 +499,34 @@ def main():
     config = ConfigLoader()
     config.load_strategies()
     params = None
-    for s in config.strategies.strategies:
-        if args.symbol in s.symbols and args.timeframe in s.timeframes:
-            params = s.params
-            break
+    strategy_name = "default"
+
+    # 如果指定了策略名称，优先使用
+    if args.strategy:
+        for s in config.strategies.strategies:
+            if s.name == args.strategy and args.symbol in s.symbols and args.timeframe in s.timeframes:
+                params = s.params
+                strategy_name = s.name
+                break
+    else:
+        # 优先选择启用的策略
+        for s in config.strategies.strategies:
+            if args.symbol in s.symbols and args.timeframe in s.timeframes and s.enabled:
+                params = s.params
+                strategy_name = s.name
+                break
+        # 如果没有启用的策略，选择第一个匹配的
+        if not params:
+            for s in config.strategies.strategies:
+                if args.symbol in s.symbols and args.timeframe in s.timeframes:
+                    params = s.params
+                    strategy_name = s.name
+                    break
     if not params:
         logger.error("未找到 %s %s 的策略配置", args.symbol, args.timeframe)
         return
 
-    engine = run_backtest(args.symbol, args.timeframe, start, end, params)
+    engine = run_backtest(args.symbol, args.timeframe, start, end, params, strategy_name=strategy_name)
     if not engine:
         return
 

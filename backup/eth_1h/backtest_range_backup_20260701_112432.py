@@ -1,0 +1,585 @@
+#!/usr/bin/env python3
+"""指定日期范围的回测脚本。
+
+用法:
+    python scripts/backtest_range.py --symbol SOL/USDT --timeframe 5m --start 2026-02-01 --end 2026-04-30
+"""
+
+import argparse
+import asyncio
+import bisect
+import json
+import logging
+import sys
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from quant_trader.core.config_loader import ConfigLoader
+from quant_trader.core.data_store import DataStore
+from quant_trader.main import PARENT_TIMEFRAME
+from quant_trader.strategies.s_r_levels import SupportResistanceStrategy
+from quant_trader.risk.manager import RiskManager
+
+FUNDING_DATA_DIR = Path(__file__).parent.parent / "quant_trader" / "data" / "funding_rates"
+
+
+def _load_funding_rates(symbol: str) -> list[dict]:
+    """从本地 JSON 缓存读取 funding rate 历史。
+
+    返回按 timestamp_ms 升序排列的记录列表，每条记录含 rate_pct 和 timestamp_ms。
+    缓存不存在时返回空列表。
+    """
+    filename = symbol.replace("/", "_").replace(":", "_") + ".json"
+    path = FUNDING_DATA_DIR / filename
+    if not path.exists():
+        logger.warning("Funding rate 缓存不存在: %s, 回测将不启用 FR 过滤", path)
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        records = data.get("records", [])
+        records.sort(key=lambda r: r["timestamp_ms"])
+        logger.info("已加载 %s funding rate 缓存: %d 条", symbol, len(records))
+        return records
+    except Exception as e:
+        logger.warning("加载 funding rate 缓存失败 %s: %s", path, e)
+        return []
+
+
+def _match_funding_rate(timestamp_ms: int, records: list[dict]) -> float | None:
+    """按时间戳匹配最近的 funding rate。
+
+    使用 bisect 查找不超过 timestamp_ms 的最新记录。
+    无匹配记录时返回 None。
+    """
+    if not records:
+        return None
+    times = [r["timestamp_ms"] for r in records]
+    idx = bisect.bisect_right(times, timestamp_ms) - 1
+    if idx < 0:
+        return None
+    return records[idx]["rate_pct"]
+
+
+logger = logging.getLogger(__name__)
+FEE_RATE = 0.0004
+
+
+class BacktestEngine:
+    def __init__(self, initial_balance: float = 100000.0,
+                 max_consecutive_losses: int = 3,
+                 cooldown_duration_seconds: int = 3600):
+        self.initial_balance = initial_balance
+        self.balance = initial_balance
+        self.positions: dict[str, dict] = {}
+        self.trades: list[dict] = []
+        self.equity_curve: list[tuple[datetime, float]] = []
+        self.consecutive_losses = 0
+        self.cooldown_end: datetime | None = None
+        self.max_consecutive_losses = max_consecutive_losses
+        self.cooldown_duration_seconds = cooldown_duration_seconds
+
+    def _position_value(self, pos: dict, price: float) -> float:
+        entry = pos["entry_price"]
+        qty = pos["quantity"]
+        lev = pos["leverage"]
+        if pos["side"] == "buy":
+            return qty * price + (price - entry) * qty * lev
+        else:
+            return qty * price + (entry - price) * qty * lev
+
+    def _record_equity(self, timestamp: datetime, price_map: dict[str, float]):
+        total = self.balance
+        for sym, pos in self.positions.items():
+            p = price_map.get(sym, pos["entry_price"])
+            total += self._position_value(pos, p) - pos["quantity"] * pos["entry_price"]
+        self.equity_curve.append((timestamp, total))
+
+    def check_stop_loss(self, symbol: str, kline: dict) -> bool:
+        pos = self.positions.get(symbol)
+        if not pos:
+            return False
+        stop = pos["stop_loss"]
+        side = pos["side"]
+        if side == "buy" and kline["low"] <= stop:
+            self._close_position(symbol, stop, "stop_loss", kline)
+            return True
+        elif side == "sell" and kline["high"] >= stop:
+            self._close_position(symbol, stop, "stop_loss", kline)
+            return True
+        return False
+
+    def _close_position(self, symbol: str, exit_price: float, reason: str, kline: dict | None = None):
+        pos = self.positions.pop(symbol, None)
+        if not pos:
+            return
+        entry = pos["entry_price"]
+        qty = pos["quantity"]
+        lev = pos["leverage"]
+        side = pos["side"]
+        if side == "buy":
+            gross_pnl = (exit_price - entry) * qty * lev
+        else:
+            gross_pnl = (entry - exit_price) * qty * lev
+        fee_open = entry * qty * FEE_RATE
+        fee_close = exit_price * qty * FEE_RATE
+        total_fee = fee_open + fee_close
+        net_pnl = gross_pnl - total_fee
+        self.balance += net_pnl
+
+        # 连续亏损追踪
+        exit_ts = kline["timestamp"] if kline else None
+        if net_pnl <= 0:
+            self.consecutive_losses += 1
+            if self.consecutive_losses >= self.max_consecutive_losses and exit_ts:
+                self.cooldown_end = exit_ts + timedelta(seconds=self.cooldown_duration_seconds)
+                logger.info(
+                    "连续亏损 %d 次，进入冷静期 %d 秒，直到 %s",
+                    self.consecutive_losses, self.cooldown_duration_seconds, self.cooldown_end,
+                )
+        else:
+            if self.consecutive_losses > 0:
+                logger.info("盈利 %.2f，重置连续亏损计数 %d → 0", net_pnl, self.consecutive_losses)
+            self.consecutive_losses = 0
+
+        self.trades.append({
+            "symbol": symbol, "side": side, "entry_price": entry, "exit_price": exit_price,
+            "quantity": qty, "leverage": lev, "gross_pnl": gross_pnl, "fee": total_fee,
+            "net_pnl": net_pnl, "reason": reason,
+            "entry_time": pos.get("entry_time"), "exit_time": exit_ts,
+            "parent_trend": pos.get("parent_trend"),
+            "adx": pos.get("adx"),
+            "bias": pos.get("bias"),
+        })
+
+    def update_stop_loss(self, symbol: str, new_stop: float) -> bool:
+        """更新持仓止损位（只能向有利方向移动）。"""
+        pos = self.positions.get(symbol)
+        if not pos:
+            return False
+        side = pos["side"]
+        current_stop = pos["stop_loss"]
+        if side == "buy" and new_stop > current_stop:
+            pos["stop_loss"] = new_stop
+            return True
+        if side == "sell" and new_stop < current_stop:
+            pos["stop_loss"] = new_stop
+            return True
+        return False
+
+    def execute_signal(self, symbol: str, signal_type: str, price: float,
+                       stop_loss: float, leverage: int, timestamp: datetime,
+                       metadata: dict | None = None):
+        # 冷静期检查（仅对新开仓，反向平仓和加仓不受限）
+        if not self.positions.get(symbol) and self.cooldown_end and timestamp < self.cooldown_end:
+            logger.info(
+                "拒绝 %s %s 新信号: 处于冷静期 %s",
+                symbol, signal_type, self.cooldown_end,
+            )
+            return
+
+        existing = self.positions.get(symbol)
+        if existing and existing["side"] != signal_type:
+            self._close_position(symbol, price, "reverse_signal", {"timestamp": timestamp})
+            existing = None
+        position_value = self.balance * 0.1
+        qty = position_value / price
+        if existing:
+            add_count = existing.get("add_count", 0)
+            max_additions = metadata.get("max_additions", 1) if metadata else 1
+            if add_count >= max_additions:
+                logger.info(
+                    "忽略 %s %s 同向加仓: 已达最大次数 %d/%d",
+                    symbol, signal_type, add_count, max_additions,
+                )
+                return
+            old_qty = existing["quantity"]
+            old_entry = existing["entry_price"]
+            total_qty = old_qty + qty
+            avg_price = (old_entry * old_qty + price * qty) / total_qty
+            existing["quantity"] = total_qty
+            existing["entry_price"] = avg_price
+            existing["stop_loss"] = stop_loss
+            existing["add_count"] = add_count + 1
+            logger.info(
+                "加仓 %s %s: 新均价=%.2f 总数量=%.4f 加仓次数=%d/%d",
+                symbol, signal_type, avg_price, total_qty, add_count + 1, max_additions,
+            )
+        else:
+            fee = price * qty * FEE_RATE
+            self.balance -= fee
+            pos = {
+                "side": signal_type, "symbol": symbol, "entry_price": price, "quantity": qty,
+                "leverage": leverage, "stop_loss": stop_loss,
+                "entry_time": timestamp, "add_count": 0,
+                "partial_tp_triggered": [],
+            }
+            if metadata:
+                pos["quality_score"] = metadata.get("quality_score", 0.0)
+                pos["parent_trend"] = metadata.get("parent_trend")
+                pos["adx"] = metadata.get("adx")
+                pos["bias"] = metadata.get("bias")
+            self.positions[symbol] = pos
+
+    def partial_close_position(self, symbol: str, close_price: float,
+                                close_ratio: float, reason: str,
+                                kline: dict | None = None):
+        pos = self.positions.get(symbol)
+        if not pos:
+            return
+        qty = pos["quantity"]
+        close_qty = qty * close_ratio
+        if close_qty <= 0:
+            return
+        entry = pos["entry_price"]
+        lev = pos["leverage"]
+        side = pos["side"]
+        if side == "buy":
+            gross_pnl = (close_price - entry) * close_qty * lev
+        else:
+            gross_pnl = (entry - close_price) * close_qty * lev
+        fee_open = entry * close_qty * FEE_RATE
+        fee_close = close_price * close_qty * FEE_RATE
+        total_fee = fee_open + fee_close
+        net_pnl = gross_pnl - total_fee
+        self.balance += net_pnl
+        self.trades.append({
+            "symbol": symbol, "side": side, "entry_price": entry,
+            "exit_price": close_price, "quantity": close_qty,
+            "leverage": lev, "gross_pnl": gross_pnl, "fee": total_fee,
+            "net_pnl": net_pnl, "reason": reason,
+            "entry_time": pos.get("entry_time"),
+            "exit_time": kline["timestamp"] if kline else None,
+            "parent_trend": pos.get("parent_trend"),
+            "adx": pos.get("adx"),
+            "bias": pos.get("bias"),
+        })
+        remaining = qty - close_qty
+        if remaining <= 1e-12:
+            self.positions.pop(symbol, None)
+        else:
+            pos["quantity"] = remaining
+
+    def get_summary(self) -> dict:
+        if not self.trades:
+            return {"initial_balance": self.initial_balance, "final_balance": self.balance,
+                    "total_return_pct": 0.0, "total_trades": 0, "win_rate": 0.0,
+                    "avg_win": 0.0, "avg_loss": 0.0, "profit_factor": 0.0, "max_drawdown_pct": 0.0}
+        winning = [t for t in self.trades if t["net_pnl"] > 0]
+        losing = [t for t in self.trades if t["net_pnl"] <= 0]
+        total_win = sum(t["net_pnl"] for t in winning)
+        total_loss = abs(sum(t["net_pnl"] for t in losing))
+        win_rate = len(winning) / len(self.trades) * 100
+        avg_win = total_win / len(winning) if winning else 0
+        avg_loss = total_loss / len(losing) if losing else 0
+        profit_factor = total_win / total_loss if total_loss > 0 else float("inf")
+        max_dd = 0.0
+        peak = self.initial_balance
+        for _, equity in self.equity_curve:
+            if equity > peak:
+                peak = equity
+            dd = (peak - equity) / peak * 100
+            if dd > max_dd:
+                max_dd = dd
+        return {
+            "initial_balance": self.initial_balance, "final_balance": self.balance,
+            "total_return_pct": (self.balance - self.initial_balance) / self.initial_balance * 100,
+            "total_trades": len(self.trades), "win_rate": win_rate,
+            "avg_win": avg_win, "avg_loss": -avg_loss,
+            "profit_factor": profit_factor, "max_drawdown_pct": max_dd,
+        }
+
+
+def _align_parent_klines(klines_chrono: list[dict], parent_klines_chrono: list[dict],
+                         parent_lookback: int | None = None) -> list[list[dict] | None]:
+    parent_idx = 0
+    parent_windows: list[list[dict] | None] = []
+    n_parent = len(parent_klines_chrono)
+    for k in klines_chrono:
+        ts = k["timestamp"]
+        while parent_idx < n_parent and parent_klines_chrono[parent_idx]["timestamp"] <= ts:
+            parent_idx += 1
+        if parent_idx == 0:
+            parent_windows.append(None)
+        else:
+            start_idx = 0 if parent_lookback is None else max(0, parent_idx - parent_lookback)
+            window = parent_klines_chrono[start_idx:parent_idx]
+            # 转为 新→旧（与实时引擎及 backtest.py 一致）
+            parent_windows.append(list(reversed(window)))
+    return parent_windows
+
+
+def run_backtest(symbol: str, timeframe: str, start: datetime, end: datetime, params: dict):
+    config = ConfigLoader()
+    exchange_cfg = config.load_static()
+    ds = DataStore(host=exchange_cfg.db_host, port=exchange_cfg.db_port,
+                   dbname=exchange_cfg.db_name, user=exchange_cfg.db_user,
+                   password=exchange_cfg.db_password)
+    ds.connect()
+
+    # 获取 K 线数据（需要扩展 get_klines 支持时间范围，这里直接查询）
+    import psycopg2
+    conn = psycopg2.connect(host=exchange_cfg.db_host, port=exchange_cfg.db_port,
+                            dbname=exchange_cfg.db_name, user=exchange_cfg.db_user,
+                            password=exchange_cfg.db_password)
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT timestamp, open, high, low, close, volume
+           FROM klines WHERE symbol = %s AND timeframe = %s
+             AND timestamp >= %s AND timestamp <= %s
+           ORDER BY timestamp ASC""",
+        (symbol, timeframe, start, end),
+    )
+    klines = [{"timestamp": r[0], "open": float(r[1]), "high": float(r[2]),
+               "low": float(r[3]), "close": float(r[4]), "volume": float(r[5])}
+              for r in cur.fetchall()]
+
+    # ---- parent / grandparent 数据需要向前扩展预热期 ----
+    # detect_trend 需要至少 50 根 K 线（EMA50），但 EMA 计算需要更长的历史才稳定。
+    # _align_parent_klines 默认取 parent_lookback 根（默认 70），因此预热期至少覆盖 70 根 parent K 线。
+    _CANDLES_PER_DAY = {"5m": 288, "1h": 24, "4h": 6, "1d": 1}
+    _PARENT_WARMUP_CANDLES = 60  # 与 backtest.py 保持一致，再额外加 5 天缓冲
+
+    parent_tf = PARENT_TIMEFRAME.get(timeframe)
+    parent_klines = []
+    if parent_tf:
+        parent_cpd = _CANDLES_PER_DAY.get(parent_tf, 24)
+        parent_warmup_days = int(_PARENT_WARMUP_CANDLES / parent_cpd) + 5
+        parent_start = start - timedelta(days=parent_warmup_days)
+        cur.execute(
+            """SELECT timestamp, open, high, low, close, volume
+               FROM klines WHERE symbol = %s AND timeframe = %s
+                 AND timestamp >= %s AND timestamp <= %s
+               ORDER BY timestamp ASC""",
+            (symbol, parent_tf, parent_start, end),
+        )
+        parent_klines = [{"timestamp": r[0], "open": float(r[1]), "high": float(r[2]),
+                          "low": float(r[3]), "close": float(r[4]), "volume": float(r[5])}
+                         for r in cur.fetchall()]
+
+    grandparent_tf = PARENT_TIMEFRAME.get(parent_tf) if parent_tf else None
+    grandparent_klines = []
+    if grandparent_tf:
+        gp_cpd = _CANDLES_PER_DAY.get(grandparent_tf, 24)
+        gp_warmup_days = int(_PARENT_WARMUP_CANDLES / gp_cpd) + 5
+        gp_start = start - timedelta(days=gp_warmup_days)
+        cur.execute(
+            """SELECT timestamp, open, high, low, close, volume
+               FROM klines WHERE symbol = %s AND timeframe = %s
+                 AND timestamp >= %s AND timestamp <= %s
+               ORDER BY timestamp ASC""",
+            (symbol, grandparent_tf, gp_start, end),
+        )
+        grandparent_klines = [{"timestamp": r[0], "open": float(r[1]), "high": float(r[2]),
+                               "low": float(r[3]), "close": float(r[4]), "volume": float(r[5])}
+                              for r in cur.fetchall()]
+    cur.close()
+    conn.close()
+
+    if not klines:
+        ds.close()
+        logger.warning("无数据")
+        return None
+
+    strategy = SupportResistanceStrategy("sol_test", params, config)
+    engine = BacktestEngine()
+
+    # 加载风控配置（与实时代码保持一致）
+    config.load_risk()
+    risk_manager = RiskManager(config.risk, ds)
+
+    parent_lookback = params.get("parent_lookback", None)
+    parent_windows = _align_parent_klines(klines, parent_klines, parent_lookback=parent_lookback)
+    grandparent_windows = _align_parent_klines(klines, grandparent_klines, parent_lookback=parent_lookback)
+
+    # 加载 funding rate 缓存
+    funding_records = _load_funding_rates(symbol)
+
+    cooldown_seconds = 220
+    last_signal_time: dict[str, float] = {}
+    window_size = 150
+
+    # 从 window_size 开始，前 window_size 根作为预热（与 backtest.py 一致）
+    for i in range(window_size, len(klines)):
+        kline = klines[i]
+        engine.check_stop_loss(symbol, kline)
+        # 窗口转为 新→旧（与策略期望一致）
+        window = list(reversed(klines[i - window_size + 1:i + 1]))
+        parent_window = parent_windows[i] if i < len(parent_windows) else None
+        grandparent_window = grandparent_windows[i] if i < len(grandparent_windows) else None
+        ts_epoch = kline["timestamp"].timestamp()
+        # 匹配当前 K 线时间对应的 funding rate
+        funding_rate = None
+        if funding_records:
+            funding_rate = _match_funding_rate(int(ts_epoch * 1000), funding_records)
+        signals = strategy.on_bar(symbol, timeframe, window, engine.positions.values(), parent_klines=parent_window, grandparent_klines=grandparent_window, funding_rate=funding_rate)
+        price_map = {symbol: kline["close"]}
+        engine._record_equity(kline["timestamp"], price_map)
+        for sig in signals:
+            if sig.symbol != symbol:
+                continue
+            if sig.action == "update_stop":
+                engine.update_stop_loss(symbol, sig.stop_loss)
+                continue
+            if sig.action == "partial_close":
+                pos = engine.positions.get(sig.symbol)
+                if pos:
+                    level_id = sig.metadata.get("partial_tp_level", "unknown")
+                    triggered = set(pos.get("partial_tp_triggered", []))
+                    if level_id not in triggered:
+                        triggered.add(level_id)
+                        pos["partial_tp_triggered"] = list(triggered)
+                        engine.partial_close_position(
+                            symbol=sig.symbol, close_price=sig.price,
+                            close_ratio=sig.close_ratio, reason=f"partial_tp_{level_id}", kline=kline,
+                        )
+                continue
+            last = last_signal_time.get(sig.symbol, 0)
+            if ts_epoch - last < cooldown_seconds:
+                continue
+            # 风控检查（与实时代码保持一致）
+            risk_result = risk_manager.check_and_adjust(sig)
+            if not risk_result["approved"]:
+                continue
+            sig.leverage = risk_result["leverage"]
+            engine.execute_signal(symbol, sig.signal_type, sig.price, sig.stop_loss, sig.leverage, kline["timestamp"], metadata=sig.metadata)
+            last_signal_time[sig.symbol] = ts_epoch
+            break  # 每根 K 线只执行一个信号
+
+    if engine.positions:
+        for sym in list(engine.positions.keys()):
+            engine._close_position(sym, klines[-1]["close"], "end_of_data", klines[-1])
+
+    engine.strategy = strategy
+
+    # 同步 filter summary 到数据库（仅用于回测期间日志打印，结束后自清）
+    if hasattr(strategy, "get_filter_summary"):
+        filter_summary = strategy.get_filter_summary()
+        for direction, stats in filter_summary.items():
+            if stats.get("checked", 0) > 0:
+                ds.upsert_filter_stats(strategy.name, symbol, timeframe, direction, stats)
+        # 回测数据用完即弃，避免污染 status 命令的实盘统计
+        with ds._get_conn().cursor() as cur:
+            cur.execute(
+                "DELETE FROM filter_stats WHERE strategy_name = %s",
+                (strategy.name,),
+            )
+
+    ds.close()
+    return engine
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--symbol", required=True)
+    parser.add_argument("--timeframe", required=True)
+    parser.add_argument("--start", required=True, help="起始日期 YYYY-MM-DD")
+    parser.add_argument("--end", required=True, help="结束日期 YYYY-MM-DD")
+    args = parser.parse_args()
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+    start = datetime.strptime(args.start, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    end = datetime.strptime(args.end, "%Y-%m-%d").replace(hour=23, minute=59, tzinfo=timezone.utc)
+
+    config = ConfigLoader()
+    config.load_strategies()
+    params = None
+    for s in config.strategies.strategies:
+        if args.symbol in s.symbols and args.timeframe in s.timeframes:
+            params = s.params
+            break
+    if not params:
+        logger.error("未找到 %s %s 的策略配置", args.symbol, args.timeframe)
+        return
+
+    engine = run_backtest(args.symbol, args.timeframe, start, end, params)
+    if not engine:
+        return
+
+    summary = engine.get_summary()
+    print("\n" + "=" * 60)
+    print(f"回测报告  {args.symbol}  {args.timeframe}  {args.start} ~ {args.end}")
+    print("=" * 60)
+    print(f"初始资金:           {summary['initial_balance']:.2f} USDT")
+    print(f"最终资金:           {summary['final_balance']:.2f} USDT")
+    print(f"总收益率:           {summary['total_return_pct']:+.2f}%")
+    print(f"最大回撤:           {summary['max_drawdown_pct']:.2f}%")
+    print(f"总交易次数:         {summary['total_trades']}")
+    print(f"胜率:               {summary['win_rate']:.1f}%")
+    print(f"平均盈利:           {summary['avg_win']:.2f} USDT")
+    print(f"平均亏损:           {summary['avg_loss']:.2f} USDT")
+    print(f"profit factor:      {summary['profit_factor']:.2f}")
+    print("=" * 60)
+
+    # ---- 过滤统计汇总 ----
+    if hasattr(engine, "strategy"):
+        filter_summary = engine.strategy.get_filter_summary()
+        print("\n=== FILTER SUMMARY ===")
+        for direction, stats in filter_summary.items():
+            checked = stats["checked"]
+            passed = stats["passed"]
+            rejected = checked - passed
+            if checked == 0:
+                continue
+            print(f"\n{direction.upper()} direction:")
+            print(f"  Total checked S/R levels:     {checked:>8}")
+            print(f"  Total signals passed:         {passed:>8} ({passed/checked*100:.1f}%)")
+            print(f"  Distance filter rejected:     {stats['distance']:>8} ({stats['distance']/checked*100:.1f}%)")
+            print(f"  ADX filter rejected:          {stats['adx']:>8} ({stats['adx']/checked*100:.1f}%)")
+            print(f"  DI direction rejected:        {stats['di']:>8} ({stats['di']/checked*100:.1f}%)")
+            print(f"  Quality filter rejected:      {stats['quality']:>8} ({stats['quality']/checked*100:.1f}%)")
+            print(f"  EMA filter rejected:          {stats['ema']:>8} ({stats['ema']/checked*100:.1f}%)")
+            print(f"  RSI filter rejected:          {stats['rsi']:>8} ({stats['rsi']/checked*100:.1f}%)")
+            print(f"  Volume filter rejected:       {stats['volume']:>8} ({stats['volume']/checked*100:.1f}%)")
+            print(f"  Rejection candle rejected:    {stats['rejection']:>8} ({stats['rejection']/checked*100:.1f}%)")
+            print(f"  Pullback filter rejected:     {stats['pullback']:>8} ({stats['pullback']/checked*100:.1f}%)")
+            print(f"  FR hard block rejected:       {stats.get('fr_hard_block', 0):>8} ({stats.get('fr_hard_block', 0)/checked*100:.1f}%)")
+            print(f"  FR penalty applied:           {stats.get('fr_penalty', 0):>8} ({stats.get('fr_penalty', 0)/checked*100:.1f}%)")
+            print(f"  Add position rejected:        {stats['add']:>8} ({stats['add']/checked*100:.1f}%)")
+            print(f"  Add limit rejected:           {stats.get('add_limit', 0):>8} ({stats.get('add_limit', 0)/checked*100:.1f}%)")
+            print(f"  Add quality rejected:         {stats.get('add_quality', 0):>8} ({stats.get('add_quality', 0)/checked*100:.1f}%)")
+            print(f"  Overall rejection rate:       {rejected:>8} ({rejected/checked*100:.1f}%)")
+        print()
+
+    # 按月分析
+    print("\n按月盈亏分布:")
+    monthly = {}
+    for t in engine.trades:
+        if t["exit_time"] is None:
+            continue
+        month = t["exit_time"].strftime("%Y-%m")
+        if month not in monthly:
+            monthly[month] = {"win": 0, "loss": 0, "count": 0, "pnl": 0}
+        monthly[month]["pnl"] += t["net_pnl"]
+        monthly[month]["count"] += 1
+        if t["net_pnl"] > 0:
+            monthly[month]["win"] += 1
+        else:
+            monthly[month]["loss"] += 1
+
+    print(f"{'月份':<10} {'交易数':<8} {'胜率%':<8} {'盈亏(USDT)':<12} {'累计盈亏':<12}")
+    print("-" * 60)
+    cumulative = 0
+    for month in sorted(monthly.keys()):
+        m = monthly[month]
+        cumulative += m["pnl"]
+        wr = m["win"] / m["count"] * 100 if m["count"] > 0 else 0
+        print(f"{month:<10} {m['count']:<8} {wr:<8.1f} {m['pnl']:<+12.2f} {cumulative:<+12.2f}")
+
+    # 逐笔明细
+    print("\n逐笔交易明细:")
+    print(f"{'序号':<4} {'方向':<5} {'入场价':<10} {'出场价':<10} {'杠杆':<5} {'净利':<10} {'parent':<10} {'bias':<14} {'原因':<15} {'入场时间':<12} {'出场时间':<12}")
+    print("-" * 128)
+    for i, t in enumerate(engine.trades, 1):
+        entry_ts = t["entry_time"].strftime("%m-%d %H:%M") if t.get("entry_time") else ""
+        exit_ts = t["exit_time"].strftime("%m-%d %H:%M") if t["exit_time"] else ""
+        pt = t.get("parent_trend") or "None"
+        bias = t.get("bias") or "None"
+        print(f"{i:<4} {t['side']:<5} {t['entry_price']:<10.2f} {t['exit_price']:<10.2f} {t['leverage']:<5}x {t['net_pnl']:<+10.2f} {pt:<10} {bias:<14} {t['reason']:<15} {entry_ts:<12} {exit_ts:<12}")
+
+
+if __name__ == "__main__":
+    main()

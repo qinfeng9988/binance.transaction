@@ -332,6 +332,22 @@ class Engine:
                     )
             return
 
+        # 处理平仓信号（布林带等策略使用）
+        if signal.action == "close":
+            if self.paper_engine:
+                existing = self.paper_engine.positions.get(signal.symbol)
+                if existing:
+                    net_pnl = self.paper_engine._close_position(
+                        signal.symbol, signal.price, signal.metadata.get("reason", "close_signal"),
+                    )
+                    if net_pnl is not None:
+                        logger.info(
+                            "[平仓] %s 价格=%.2f 盈亏=%.2f 原因=%s",
+                            signal.symbol, signal.price, net_pnl,
+                            signal.metadata.get("reason", "close_signal"),
+                        )
+            return
+
         # 根据运行模式处理（开仓类信号）
         mode = self.config.strategies.mode
         if mode == "paper":
