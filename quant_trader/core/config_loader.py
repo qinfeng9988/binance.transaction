@@ -37,6 +37,7 @@ class ExchangeConfig:
     db_password: str = ""
     status_host: str = "127.0.0.1"
     status_port: int = 58080
+    kline_buffer_seconds: int = 1
 
 
 @dataclass
@@ -91,6 +92,7 @@ class ConfigLoader:
         binance = raw.get("binance", {})
         db = raw.get("database", {})
         status = raw.get("status", {})
+        kline = raw.get("kline", {})
         self._exchange_cfg = ExchangeConfig(
             api_key=binance.get("api_key", ""),
             api_secret=binance.get("api_secret", ""),
@@ -104,6 +106,7 @@ class ConfigLoader:
             db_password=db.get("password", ""),
             status_host=status.get("host", "127.0.0.1"),
             status_port=int(status.get("port", 58080)),
+            kline_buffer_seconds=int(kline.get("buffer_seconds", 1)),
         )
         logger.info("已加载静态配置: exchanges.yaml (sandbox=%s)", self._exchange_cfg.sandbox)
         return self._exchange_cfg

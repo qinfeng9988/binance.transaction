@@ -9,6 +9,7 @@
 
 import asyncio
 import logging
+import time as _time
 from datetime import datetime, timezone
 
 from ..exchange.binance_adapter import BinanceAdapter
@@ -20,9 +21,10 @@ logger = logging.getLogger(__name__)
 class KlineDataManager:
     """K 线数据管理器 - 统一拉取、缓存、存储、分发 K 线数据。"""
 
-    def __init__(self, exchange: BinanceAdapter, data_store: DataStore):
+    def __init__(self, exchange: BinanceAdapter, data_store: DataStore, buffer_seconds: int = 1):
         self.exchange = exchange
         self.data_store = data_store
+        self.buffer_seconds = buffer_seconds
         # (symbol, timeframe) -> list[dict]  K 线缓存
         self._klines_cache: dict[tuple[str, str], list[dict]] = {}
         # (symbol, timeframe) -> list[asyncio.Queue]  等待 K 线的订阅者
@@ -77,9 +79,9 @@ class KlineDataManager:
             except Exception:
                 logger.exception("K 线拉取异常: %s %s", symbol, timeframe)
 
-            # 对齐到下一个K线收盘后1秒执行
-            now = asyncio.get_event_loop().time()
-            next_execution = ((int(now) // interval) + 1) * interval + 1
+            # 对齐到下一个K线收盘后buffer_seconds秒执行（使用Unix时间戳对齐到整点）
+            now = _time.time()
+            next_execution = ((int(now) // interval) + 1) * interval + self.buffer_seconds
             sleep_time = max(1, next_execution - now)
             await asyncio.sleep(sleep_time)
 

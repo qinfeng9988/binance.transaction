@@ -105,7 +105,10 @@ class Engine:
         self.exchange.connect()
 
         # 初始化 K 线数据管理器
-        self.kline_manager = KlineDataManager(self.exchange, self.data_store)
+        self.kline_manager = KlineDataManager(
+            self.exchange, self.data_store,
+            buffer_seconds=exchange_cfg.kline_buffer_seconds,
+        )
 
         # 初始化状态 HTTP 服务
         self.status_server = StatusServer(
@@ -242,8 +245,9 @@ class Engine:
                 last_kline_open_ms = klines[1]["timestamp"]
                 last_kline_close_ms = last_kline_open_ms + interval * 1000
                 now_ms = int(_time.time() * 1000)
-                # 给交易所数据留1秒缓冲，确保K线已完全形成
-                kline_fully_formed = now_ms >= last_kline_close_ms + 1000
+                buffer_ms = getattr(self.kline_manager, 'buffer_seconds', 1) * 1000
+                # 给交易所数据留buffer_seconds缓冲，确保K线已完全形成
+                kline_fully_formed = now_ms >= last_kline_close_ms + buffer_ms
 
                 # 执行策略 — 只在K线完成后执行，确保volume等数据完整
                 strategy = self._get_strategy(strategy_name)
@@ -268,11 +272,13 @@ class Engine:
                         self._last_signal_time[signal.symbol] = now
                         break  # 每根K线只处理一个信号，与回测保持一致
                 elif strategy and not kline_fully_formed:
+                    buffer_s = getattr(self.kline_manager, 'buffer_seconds', 1)
                     logger.debug(
-                        "跳过策略执行 %s %s: 上一根K线尚未完成 (开盘=%s, 需>=收盘+1s=%s)",
+                        "跳过策略执行 %s %s: 上一根K线尚未完成 (开盘=%s, 需>=收盘+%ds=%s)",
                         symbol, timeframe,
                         datetime.fromtimestamp(last_kline_open_ms / 1000, tz=timezone.utc).strftime("%H:%M:%S"),
-                        datetime.fromtimestamp((last_kline_close_ms + 1000) / 1000, tz=timezone.utc).strftime("%H:%M:%S"),
+                        buffer_s,
+                        datetime.fromtimestamp((last_kline_close_ms + buffer_s * 1000) / 1000, tz=timezone.utc).strftime("%H:%M:%S"),
                     )
 
                 # 定期打印账户概览（每 10 个周期）
