@@ -1,7 +1,7 @@
 {
   "symbol": "ETH/USDT",
-  "updated_at": "2026-06-09T08:20:34.295694+00:00",
-  "count": 1095,
+  "updated_at": "2026-07-08T09:26:25.575988+00:00",
+  "count": 1182,
   "records": [
     {
       "rate_pct": 0.0086,
@@ -4382,6 +4382,354 @@
     {
       "rate_pct": 0.0,
       "timestamp_ms": 1780992000000
+    },
+    {
+      "rate_pct": -0.0052,
+      "timestamp_ms": 1781020800001
+    },
+    {
+      "rate_pct": -0.0041,
+      "timestamp_ms": 1781049600001
+    },
+    {
+      "rate_pct": -0.0046,
+      "timestamp_ms": 1781078400011
+    },
+    {
+      "rate_pct": -0.0031,
+      "timestamp_ms": 1781107200009
+    },
+    {
+      "rate_pct": -0.0037,
+      "timestamp_ms": 1781136000000
+    },
+    {
+      "rate_pct": 0.0008,
+      "timestamp_ms": 1781164800004
+    },
+    {
+      "rate_pct": -0.0024,
+      "timestamp_ms": 1781193600000
+    },
+    {
+      "rate_pct": -0.0024,
+      "timestamp_ms": 1781222400000
+    },
+    {
+      "rate_pct": -0.0059,
+      "timestamp_ms": 1781251200000
+    },
+    {
+      "rate_pct": -0.0022,
+      "timestamp_ms": 1781280000000
+    },
+    {
+      "rate_pct": -0.0006,
+      "timestamp_ms": 1781308800000
+    },
+    {
+      "rate_pct": 0.0036,
+      "timestamp_ms": 1781337600007
+    },
+    {
+      "rate_pct": 0.0027,
+      "timestamp_ms": 1781366400002
+    },
+    {
+      "rate_pct": -0.0006,
+      "timestamp_ms": 1781395200005
+    },
+    {
+      "rate_pct": -0.0011,
+      "timestamp_ms": 1781424000009
+    },
+    {
+      "rate_pct": -0.0019,
+      "timestamp_ms": 1781452800000
+    },
+    {
+      "rate_pct": 0.0029,
+      "timestamp_ms": 1781481600013
+    },
+    {
+      "rate_pct": -0.0007,
+      "timestamp_ms": 1781510400013
+    },
+    {
+      "rate_pct": 0.0069,
+      "timestamp_ms": 1781539200004
+    },
+    {
+      "rate_pct": 0.003,
+      "timestamp_ms": 1781568000000
+    },
+    {
+      "rate_pct": -0.0021,
+      "timestamp_ms": 1781596800000
+    },
+    {
+      "rate_pct": 0.0032,
+      "timestamp_ms": 1781625600001
+    },
+    {
+      "rate_pct": 0.003,
+      "timestamp_ms": 1781654400012
+    },
+    {
+      "rate_pct": 0.0023,
+      "timestamp_ms": 1781683200000
+    },
+    {
+      "rate_pct": -0.0007,
+      "timestamp_ms": 1781712000000
+    },
+    {
+      "rate_pct": 0.0046,
+      "timestamp_ms": 1781740800002
+    },
+    {
+      "rate_pct": 0.0007,
+      "timestamp_ms": 1781769600000
+    },
+    {
+      "rate_pct": -0.0007,
+      "timestamp_ms": 1781798400001
+    },
+    {
+      "rate_pct": 0.0066,
+      "timestamp_ms": 1781827200005
+    },
+    {
+      "rate_pct": -0.0021,
+      "timestamp_ms": 1781856000001
+    },
+    {
+      "rate_pct": -0.0,
+      "timestamp_ms": 1781884800001
+    },
+    {
+      "rate_pct": 0.0025,
+      "timestamp_ms": 1781913600001
+    },
+    {
+      "rate_pct": 0.0032,
+      "timestamp_ms": 1781942400000
+    },
+    {
+      "rate_pct": 0.0032,
+      "timestamp_ms": 1781971200001
+    },
+    {
+      "rate_pct": 0.0029,
+      "timestamp_ms": 1782000000000
+    },
+    {
+      "rate_pct": 0.0026,
+      "timestamp_ms": 1782028800000
+    },
+    {
+      "rate_pct": 0.0008,
+      "timestamp_ms": 1782057600000
+    },
+    {
+      "rate_pct": 0.0039,
+      "timestamp_ms": 1782086400000
+    },
+    {
+      "rate_pct": 0.0019,
+      "timestamp_ms": 1782115200000
+    },
+    {
+      "rate_pct": 0.0008,
+      "timestamp_ms": 1782144000002
+    },
+    {
+      "rate_pct": 0.0024,
+      "timestamp_ms": 1782172800003
+    },
+    {
+      "rate_pct": 0.0003,
+      "timestamp_ms": 1782201600005
+    },
+    {
+      "rate_pct": -0.0039,
+      "timestamp_ms": 1782230400002
+    },
+    {
+      "rate_pct": 0.0046,
+      "timestamp_ms": 1782259200005
+    },
+    {
+      "rate_pct": 0.0022,
+      "timestamp_ms": 1782288000005
+    },
+    {
+      "rate_pct": 0.0,
+      "timestamp_ms": 1782316800003
+    },
+    {
+      "rate_pct": 0.0005,
+      "timestamp_ms": 1782345600000
+    },
+    {
+      "rate_pct": 0.0043,
+      "timestamp_ms": 1782374400000
+    },
+    {
+      "rate_pct": -0.0081,
+      "timestamp_ms": 1782403200000
+    },
+    {
+      "rate_pct": -0.0017,
+      "timestamp_ms": 1782432000010
+    },
+    {
+      "rate_pct": -0.002,
+      "timestamp_ms": 1782460800002
+    },
+    {
+      "rate_pct": 0.0005,
+      "timestamp_ms": 1782489600000
+    },
+    {
+      "rate_pct": 0.0018,
+      "timestamp_ms": 1782518400000
+    },
+    {
+      "rate_pct": -0.0006,
+      "timestamp_ms": 1782547200000
+    },
+    {
+      "rate_pct": 0.0018,
+      "timestamp_ms": 1782576000009
+    },
+    {
+      "rate_pct": -0.0054,
+      "timestamp_ms": 1782604800000
+    },
+    {
+      "rate_pct": -0.0029,
+      "timestamp_ms": 1782633600013
+    },
+    {
+      "rate_pct": 0.0019,
+      "timestamp_ms": 1782662400000
+    },
+    {
+      "rate_pct": -0.0002,
+      "timestamp_ms": 1782691200006
+    },
+    {
+      "rate_pct": 0.0002,
+      "timestamp_ms": 1782720000013
+    },
+    {
+      "rate_pct": 0.0021,
+      "timestamp_ms": 1782748800004
+    },
+    {
+      "rate_pct": 0.0045,
+      "timestamp_ms": 1782777600000
+    },
+    {
+      "rate_pct": 0.0046,
+      "timestamp_ms": 1782806400000
+    },
+    {
+      "rate_pct": 0.0031,
+      "timestamp_ms": 1782835200005
+    },
+    {
+      "rate_pct": 0.0062,
+      "timestamp_ms": 1782864000000
+    },
+    {
+      "rate_pct": 0.0053,
+      "timestamp_ms": 1782892800000
+    },
+    {
+      "rate_pct": 0.0021,
+      "timestamp_ms": 1782921600000
+    },
+    {
+      "rate_pct": 0.002,
+      "timestamp_ms": 1782950400000
+    },
+    {
+      "rate_pct": 0.005,
+      "timestamp_ms": 1782979200000
+    },
+    {
+      "rate_pct": 0.0073,
+      "timestamp_ms": 1783008000000
+    },
+    {
+      "rate_pct": 0.0078,
+      "timestamp_ms": 1783036800000
+    },
+    {
+      "rate_pct": 0.01,
+      "timestamp_ms": 1783065600007
+    },
+    {
+      "rate_pct": 0.0052,
+      "timestamp_ms": 1783094400000
+    },
+    {
+      "rate_pct": 0.0097,
+      "timestamp_ms": 1783123200000
+    },
+    {
+      "rate_pct": 0.0076,
+      "timestamp_ms": 1783152000000
+    },
+    {
+      "rate_pct": 0.0052,
+      "timestamp_ms": 1783180800007
+    },
+    {
+      "rate_pct": 0.0078,
+      "timestamp_ms": 1783209600003
+    },
+    {
+      "rate_pct": 0.0062,
+      "timestamp_ms": 1783238400001
+    },
+    {
+      "rate_pct": 0.0047,
+      "timestamp_ms": 1783267200000
+    },
+    {
+      "rate_pct": 0.0083,
+      "timestamp_ms": 1783296000000
+    },
+    {
+      "rate_pct": 0.0047,
+      "timestamp_ms": 1783324800000
+    },
+    {
+      "rate_pct": 0.007,
+      "timestamp_ms": 1783353600000
+    },
+    {
+      "rate_pct": 0.0076,
+      "timestamp_ms": 1783382400000
+    },
+    {
+      "rate_pct": 0.0033,
+      "timestamp_ms": 1783411200000
+    },
+    {
+      "rate_pct": 0.0041,
+      "timestamp_ms": 1783440000000
+    },
+    {
+      "rate_pct": 0.0015,
+      "timestamp_ms": 1783468800000
+    },
+    {
+      "rate_pct": 0.003,
+      "timestamp_ms": 1783497600000
     }
   ]
 }

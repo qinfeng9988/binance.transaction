@@ -91,6 +91,7 @@ class PositionRecord:
     status: str = "open"             # "open" 或 "closed"
     closed_quantity: float = 0.0     # 累计已平仓数量
     close_count: int = 0             # 平仓次数
+    partial_tp_triggered: str = ""   # 已触发的部分止盈级别（逗号分隔）
     id: int | None = None            # 数据库中的主键 ID
 
     def __post_init__(self):
@@ -104,6 +105,51 @@ class PositionRecord:
         self.close_count = int(self.close_count)
         if self.id is not None:
             self.id = int(self.id)
+
+
+@dataclass
+class EntryRecord:
+    """入场明细记录。"""
+    position_id: int
+    seq: int
+    orig_qty: float
+    remaining_qty: float
+    entry_price: float
+    signal_id: int | None = None
+    status: str = "open"
+    id: int | None = None
+
+    def __post_init__(self):
+        self.position_id = int(self.position_id)
+        self.seq = int(self.seq)
+        self.orig_qty = float(self.orig_qty)
+        self.remaining_qty = float(self.remaining_qty)
+        self.entry_price = float(self.entry_price)
+        if self.signal_id is not None:
+            self.signal_id = int(self.signal_id)
+        if self.id is not None:
+            self.id = int(self.id)
+
+
+@dataclass
+class ClosureRecord:
+    """出场明细记录（归因）。"""
+    entry_id: int
+    close_qty: float
+    entry_price: float
+    exit_price: float
+    pnl: float
+    fee: float
+    reason: str
+    signal_id: int | None = None
+
+    def __post_init__(self):
+        self.entry_id = int(self.entry_id)
+        self.close_qty = float(self.close_qty)
+        self.entry_price = float(self.entry_price)
+        self.exit_price = float(self.exit_price)
+        self.pnl = float(self.pnl)
+        self.fee = float(self.fee)
 
 
 # ============================================================
@@ -216,6 +262,7 @@ CREATE TABLE IF NOT EXISTS positions (
     status VARCHAR(10) DEFAULT 'open',             -- 持仓状态，可选值："open"(持仓中) | "closed"(已全平)
     closed_quantity NUMERIC(20,8) DEFAULT 0,       -- 累计已平仓数量
     close_count INTEGER DEFAULT 0,                  -- 平仓次数
+    partial_tp_triggered TEXT DEFAULT '',           -- 已触发的部分止盈级别（逗号分隔，如 "2.0R,3.5R"）
     create_time TIMESTAMPTZ NOT NULL DEFAULT NOW(), -- 首次写入时间
     update_time TIMESTAMPTZ NOT NULL DEFAULT NOW()  -- 最后更新时间
 );
@@ -233,6 +280,53 @@ COMMENT ON COLUMN positions.pnl IS '累计已实现盈亏（USDT），每次部�
 COMMENT ON COLUMN positions.status IS '持仓状态："open"=持仓中, "closed"=已全平';
 COMMENT ON COLUMN positions.closed_quantity IS '累计已平仓数量（基础币数量）';
 COMMENT ON COLUMN positions.close_count IS '平仓次数（含部分平仓和全平）';
+COMMENT ON COLUMN positions.partial_tp_triggered IS '已触发的部分止盈级别，逗号分隔（如 "2.0R,3.5R"），防止同一级别重复触发';
+
+-- ============================================================
+-- 入场明细表（每笔开仓/加仓一条记录，用于交易归因）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS position_entries (
+    id SERIAL PRIMARY KEY,
+    position_id INTEGER NOT NULL REFERENCES positions(id) ON DELETE CASCADE,
+    seq INTEGER NOT NULL,                           -- 入场顺序（1=首次开仓, 2=第一次加仓, ...）
+    orig_qty NUMERIC(20,8) NOT NULL,                -- 原始入场数量（不变）
+    remaining_qty NUMERIC(20,8) NOT NULL,            -- 剩余未平数量（每次平仓递减）
+    entry_price NUMERIC(20,8) NOT NULL,              -- 本笔入场价格（不变）
+    signal_id INTEGER REFERENCES signals(id) ON DELETE SET NULL,
+    status VARCHAR(10) DEFAULT 'open',              -- "open" / "closed"
+    create_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    update_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(position_id, seq)
+);
+
+COMMENT ON TABLE position_entries IS '入场明细表，每笔开仓/加仓一条记录，用于交易归因';
+COMMENT ON COLUMN position_entries.seq IS '入场顺序，1=首次开仓, 2=第一次加仓, 以此类推';
+COMMENT ON COLUMN position_entries.orig_qty IS '原始入场数量（不变）';
+COMMENT ON COLUMN position_entries.remaining_qty IS '剩余未平数量，每次平仓递减，归零时 status 变为 closed';
+COMMENT ON COLUMN position_entries.signal_id IS '触发本笔入场的信号 ID';
+
+-- ============================================================
+-- 出场明细表（每笔平仓按 FIFO 扣减 entries 生成，用于归因）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS position_entry_closures (
+    id SERIAL PRIMARY KEY,
+    entry_id INTEGER NOT NULL REFERENCES position_entries(id) ON DELETE CASCADE,
+    close_qty NUMERIC(20,8) NOT NULL,               -- 本次平仓数量
+    entry_price NUMERIC(20,8) NOT NULL,              -- 入场价（冗余，方便查询）
+    exit_price NUMERIC(20,8) NOT NULL,               -- 出场价
+    pnl NUMERIC(20,8) NOT NULL,                      -- 本笔归因盈亏（已扣分摊手续费）
+    fee NUMERIC(20,8) NOT NULL,                      -- 本笔分摊的手续费
+    reason VARCHAR(20) NOT NULL,                     -- "partial_close" / "stop_loss_close" / "take_profit_close" / "close"
+    signal_id INTEGER REFERENCES signals(id) ON DELETE SET NULL,
+    close_time TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+COMMENT ON TABLE position_entry_closures IS '出场明细表，每笔平仓按 FIFO 扣减 entries 生成，同一 entry 可有多条 closure';
+COMMENT ON COLUMN position_entry_closures.close_qty IS '本次平仓数量（从对应 entry 中扣减的部分）';
+COMMENT ON COLUMN position_entry_closures.pnl IS '本笔归因盈亏（已扣分摊手续费）';
+COMMENT ON COLUMN position_entry_closures.fee IS '本笔分摊的手续费，按各 entry 被扣减数量比例分摊';
+COMMENT ON COLUMN position_entry_closures.reason IS '出场原因: partial_close=部分平仓, stop_loss_close=止损, take_profit_close=止盈, close=反向信号全平';
+COMMENT ON COLUMN position_entry_closures.signal_id IS '触发本次平仓的信号 ID，止损时为 NULL';
 
 -- ============================================================
 -- 索引
@@ -261,6 +355,10 @@ CREATE TABLE IF NOT EXISTS filter_stats (
 );
 
 CREATE INDEX IF NOT EXISTS idx_filter_stats_lookup ON filter_stats(strategy_name, symbol, timeframe, direction);
+CREATE INDEX IF NOT EXISTS idx_entries_position ON position_entries(position_id, seq ASC);
+CREATE INDEX IF NOT EXISTS idx_entries_open ON position_entries(status) WHERE status = 'open';
+CREATE INDEX IF NOT EXISTS idx_entry_closures_entry ON position_entry_closures(entry_id, close_time ASC);
+CREATE INDEX IF NOT EXISTS idx_entry_closures_signal ON position_entry_closures(signal_id);
 
 -- ============================================================
 -- 自动刷新 update_time 的通用触发器
@@ -314,6 +412,15 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_filter_stats_update_time') THEN
         CREATE TRIGGER update_filter_stats_update_time
             BEFORE UPDATE ON filter_stats
+            FOR EACH ROW EXECUTE FUNCTION update_update_time_column();
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_position_entries_update_time') THEN
+        CREATE TRIGGER update_position_entries_update_time
+            BEFORE UPDATE ON position_entries
             FOR EACH ROW EXECUTE FUNCTION update_update_time_column();
     END IF;
 END $$;
@@ -452,19 +559,21 @@ class DataStore:
             cur.execute(
                 """INSERT INTO positions (symbol, side, entry_price, quantity, leverage,
                                           entry_time, stop_loss, status,
-                                          closed_quantity, close_count)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                          closed_quantity, close_count, partial_tp_triggered)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
                 (position.symbol, position.side, position.entry_price,
                  position.quantity, position.leverage, position.entry_time,
                  position.stop_loss, position.status,
-                 position.closed_quantity, position.close_count),
+                 position.closed_quantity, position.close_count,
+                 position.partial_tp_triggered),
             )
             return cur.fetchone()[0]
 
     def update_position(self, symbol: str, quantity: float, entry_price: float,
                         stop_loss: float = 0.0, closed_quantity: float = None,
-                        close_count: int = None, pnl: float = None):
+                        close_count: int = None, pnl: float = None,
+                        partial_tp_triggered: str = None):
         """更新持仓的数量、入场价和止损价（用于加仓/减仓/部分平仓场景）。"""
         with self._get_conn().cursor() as cur:
             sets = ["quantity = %s", "entry_price = %s", "stop_loss = %s"]
@@ -478,6 +587,9 @@ class DataStore:
             if pnl is not None:
                 sets.append("pnl = %s")
                 params.append(pnl)
+            if partial_tp_triggered is not None:
+                sets.append("partial_tp_triggered = %s")
+                params.append(partial_tp_triggered)
             params.append(symbol)
             cur.execute(
                 f"""UPDATE positions
@@ -504,7 +616,7 @@ class DataStore:
             cur.execute(
                 """SELECT id, symbol, side, entry_price, quantity, leverage,
                           entry_time, stop_loss, exit_price, exit_time, pnl, status,
-                          closed_quantity, close_count
+                          closed_quantity, close_count, partial_tp_triggered
                    FROM positions WHERE status = 'open'"""
             )
             rows = cur.fetchall()
@@ -516,6 +628,7 @@ class DataStore:
                 stop_loss=float(r[7]), exit_price=float(r[8]),
                 exit_time=r[9], pnl=float(r[10]), status=r[11],
                 closed_quantity=float(r[12]), close_count=r[13],
+                partial_tp_triggered=r[14] or "",
             )
             for r in rows
         ]
@@ -568,5 +681,166 @@ class DataStore:
         sql += " ORDER BY symbol, timeframe, direction, filter_type"
         with self._get_conn().cursor() as cur:
             cur.execute(sql, params)
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+    # ==================== 入场明细（归因） ====================
+
+    def insert_entry(self, entry: EntryRecord) -> int:
+        """写入一条入场明细，返回 entry ID。"""
+        with self._get_conn().cursor() as cur:
+            cur.execute(
+                """INSERT INTO position_entries
+                       (position_id, seq, orig_qty, remaining_qty, entry_price,
+                        signal_id, status)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)
+                   RETURNING id""",
+                (entry.position_id, entry.seq, entry.orig_qty, entry.remaining_qty,
+                 entry.entry_price, entry.signal_id, entry.status),
+            )
+            return cur.fetchone()[0]
+
+    def update_entry(self, entry_id: int, remaining_qty: float, status: str):
+        """更新 entry 的剩余数量和状态。"""
+        with self._get_conn().cursor() as cur:
+            cur.execute(
+                """UPDATE position_entries
+                   SET remaining_qty = %s, status = %s
+                   WHERE id = %s""",
+                (remaining_qty, status, entry_id),
+            )
+
+    def get_open_entries(self, position_id: int) -> list[EntryRecord]:
+        """查询某持仓下所有未平 entries（按 seq ASC，FIFO 顺序）。"""
+        with self._get_conn().cursor() as cur:
+            cur.execute(
+                """SELECT id, position_id, seq, orig_qty, remaining_qty,
+                          entry_price, signal_id, status
+                   FROM position_entries
+                   WHERE position_id = %s AND status = 'open'
+                   ORDER BY seq ASC""",
+                (position_id,),
+            )
+            rows = cur.fetchall()
+        return [
+            EntryRecord(
+                id=r[0], position_id=r[1], seq=r[2],
+                orig_qty=float(r[3]), remaining_qty=float(r[4]),
+                entry_price=float(r[5]), signal_id=r[6], status=r[7],
+            )
+            for r in rows
+        ]
+
+    # ==================== 出场明细（归因） ====================
+
+    def insert_closure(self, closure: ClosureRecord) -> int:
+        """写入一条出场明细，返回 closure ID。"""
+        with self._get_conn().cursor() as cur:
+            cur.execute(
+                """INSERT INTO position_entry_closures
+                       (entry_id, close_qty, entry_price, exit_price,
+                        pnl, fee, reason, signal_id)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                   RETURNING id""",
+                (closure.entry_id, closure.close_qty, closure.entry_price,
+                 closure.exit_price, closure.pnl, closure.fee,
+                 closure.reason, closure.signal_id),
+            )
+            return cur.fetchone()[0]
+
+    # ==================== 归因查询 ====================
+
+    def get_attribution_by_signal(self, signal_id: int = None) -> list[dict]:
+        """按信号归因查询盈亏。signal_id 为 None 时返回所有信号的归因。"""
+        sql = """
+            SELECT
+                s.id AS signal_id,
+                s.signal_type,
+                s.price AS signal_price,
+                s.timestamp AS signal_time,
+                pe.entry_price,
+                SUM(ec.close_qty) AS total_closed_qty,
+                SUM(ec.pnl) AS total_attributed_pnl,
+                SUM(ec.fee) AS total_fee
+            FROM position_entries pe
+            JOIN signals s ON pe.signal_id = s.id
+            JOIN position_entry_closures ec ON ec.entry_id = pe.id
+            {where_clause}
+            GROUP BY s.id, s.signal_type, s.price, s.timestamp, pe.entry_price
+            ORDER BY s.timestamp
+        """
+        if signal_id is not None:
+            sql = sql.format(where_clause="WHERE s.id = %s")
+            params = [signal_id]
+        else:
+            sql = sql.format(where_clause="")
+            params = []
+        with self._get_conn().cursor() as cur:
+            cur.execute(sql, params)
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+    def get_attribution_by_position(self, position_id: int = None) -> list[dict]:
+        """按持仓归因查询明细。position_id 为 None 时返回所有持仓的归因。"""
+        sql = """
+            SELECT
+                p.id AS position_id,
+                p.symbol,
+                p.side,
+                pe.id AS entry_id,
+                pe.seq,
+                pe.orig_qty,
+                pe.entry_price,
+                pe.signal_id,
+                pe.remaining_qty,
+                pe.status AS entry_status,
+                SUM(ec.close_qty) AS total_closed_qty,
+                SUM(ec.pnl) AS total_attributed_pnl,
+                SUM(ec.fee) AS total_fee
+            FROM positions p
+            JOIN position_entries pe ON pe.position_id = p.id
+            LEFT JOIN position_entry_closures ec ON ec.entry_id = pe.id
+            {where_clause}
+            GROUP BY p.id, p.symbol, p.side, pe.id, pe.seq,
+                     pe.orig_qty, pe.entry_price, pe.signal_id,
+                     pe.remaining_qty, pe.status
+            ORDER BY p.id, pe.seq
+        """
+        if position_id is not None:
+            sql = sql.format(where_clause="WHERE p.id = %s")
+            params = [position_id]
+        else:
+            sql = sql.format(where_clause="")
+            params = []
+        with self._get_conn().cursor() as cur:
+            cur.execute(sql, params)
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+    def get_attribution_by_time_range(self, start_time, end_time) -> list[dict]:
+        """按时间段汇总归因盈亏。"""
+        with self._get_conn().cursor() as cur:
+            cur.execute(
+                """SELECT
+                    s.id AS signal_id,
+                    s.signal_type,
+                    s.symbol,
+                    s.price AS signal_price,
+                    s.timestamp AS signal_time,
+                    pe.entry_price,
+                    SUM(ec.close_qty) AS total_closed_qty,
+                    SUM(ec.pnl) AS total_attributed_pnl,
+                    SUM(ec.fee) AS total_fee,
+                    MIN(ec.close_time) AS first_close_time,
+                    MAX(ec.close_time) AS last_close_time
+                FROM position_entries pe
+                JOIN signals s ON pe.signal_id = s.id
+                JOIN position_entry_closures ec ON ec.entry_id = pe.id
+                WHERE ec.close_time >= %s AND ec.close_time <= %s
+                GROUP BY s.id, s.signal_type, s.symbol, s.price,
+                         s.timestamp, pe.entry_price
+                ORDER BY s.timestamp""",
+                (start_time, end_time),
+            )
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, row)) for row in cur.fetchall()]

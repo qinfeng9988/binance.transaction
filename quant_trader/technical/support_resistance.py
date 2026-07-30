@@ -669,3 +669,238 @@ def identify_support_resistance(klines: list[dict], min_touches: float = 2.0,
         "support": sorted(support, key=lambda x: x["price"]),
         "resistance": sorted(resistance, key=lambda x: x["price"]),
     }
+
+
+def analyze_sr_levels(
+    klines: list[dict],
+    parent_klines: list[dict] | None = None,
+    params: dict | None = None,
+) -> dict:
+    """S/R 位纯分析函数（不生成交易信号）。
+
+    整合 S/R 位识别、趋势判断、ADX/RSI/ATR 指标计算，
+    返回策略视角下的完整市场分析结果，供查询工具和策略共用。
+
+    参数:
+        klines: 当前周期 K 线数据（新→旧，index 0 为最新）
+        parent_klines: 上级周期 K 线数据（可选，用于多周期趋势确认）
+        params: 分析参数字典，None 时使用默认参数
+
+    返回:
+        {
+            "current_price": float,
+            "timestamp": str,
+            "trend": {"trend": str, "ema_fast": float, "ema_slow": float},
+            "parent_trend": {"trend": str, "ema_fast": float, "ema_slow": float} | None,
+            "bias": str,
+            "adx": float,
+            "plus_di": float,
+            "minus_di": float,
+            "rsi": float,
+            "atr": float,
+            "volume_ratio": float,
+            "levels": {"support": [...], "resistance": [...]},
+            "is_ranging": bool,
+        }
+    """
+    from ..technical.indicators import ema, rsi as calc_rsi, adx as calc_adx, plus_di, minus_di, atr as calc_atr
+
+    # 默认参数
+    default_params = {
+        "sr_lookback": 100,
+        "ema_fast_period": 21,
+        "ema_slow_period": 50,
+        "ema_gap_threshold_pct": 1.0,
+        "adx_period": 14,
+        "adx_min": 22.0,
+        "rsi_period": 14,
+        "volume_burst_lookback": 20,
+        "volume_burst_ratio": 1.8,
+        "min_touches": 3.0,
+        "entry_threshold_pct": 0.5,
+        "require_parent_ema_aligned": True,
+        "trend_bonus_aligned": 1.3,
+        "trend_bonus_counter": -0.5,
+        "require_rejection_candle": False,
+        "rejection_min_wick_ratio": 2.0,
+        "rejection_max_body_ratio": 0.5,
+        "adaptive_swing_window": False,
+        "swing_window_adx_threshold": 25.0,
+        "swing_window_strong": 3,
+        "swing_window_weak": 2,
+        "use_order_blocks": False,
+        "use_fvg": False,
+        "use_vah_val": False,
+        "value_area_pct": 0.70,
+        "vah_val_near_threshold_pct": 0.005,
+        "poc_near_threshold_pct": 0.005,
+        "poc_far_threshold_pct": 0.007,
+        "vah_val_near_bonus": 0.5,
+        "vah_val_inner_bonus": 0.3,
+    }
+
+    p = {**default_params, **(params or {})}
+
+    if len(klines) < 50:
+        return {"error": "K 线数据不足（需要至少 50 根）"}
+
+    # 恢复时间顺序（旧→新）用于指标计算
+    chrono = list(reversed(klines))
+
+    current_price = klines[0]["close"]
+    timestamp = klines[0].get("timestamp", "")
+
+    # ---- 1. EMA 趋势判断 ----
+    ema_fast_arr = ema(chrono, p["ema_fast_period"])
+    ema_slow_arr = ema(chrono, p["ema_slow_period"])
+    fast = ema_fast_arr[-1]
+    slow = ema_slow_arr[-1]
+    gap_pct = abs(fast - slow) / slow * 100 if slow != 0 else 0
+
+    if gap_pct < p["ema_gap_threshold_pct"]:
+        trend = "ranging"
+    else:
+        trend = "uptrend" if fast > slow else "downtrend"
+
+    trend_info = {
+        "trend": trend,
+        "ema_fast": round(float(fast), 2),
+        "ema_slow": round(float(slow), 2),
+    }
+
+    # ---- 2. 上级周期趋势 ----
+    parent_trend_info = None
+    parent_aligned = None
+
+    if parent_klines and len(parent_klines) >= 50:
+        parent_chrono = list(reversed(parent_klines))
+        parent_ema_fast = ema(parent_chrono, p["ema_fast_period"])
+        parent_ema_slow = ema(parent_chrono, p["ema_slow_period"])
+        parent_fast = parent_ema_fast[-1]
+        parent_slow = parent_ema_slow[-1]
+        parent_gap = abs(parent_fast - parent_slow) / parent_slow * 100 if parent_slow != 0 else 0
+
+        if parent_gap < p["ema_gap_threshold_pct"]:
+            parent_trend = "ranging"
+        else:
+            parent_trend = "uptrend" if parent_fast > parent_slow else "downtrend"
+
+        parent_aligned = parent_trend != "ranging"
+        parent_trend_info = {
+            "trend": parent_trend,
+            "ema_fast": round(float(parent_fast), 2),
+            "ema_slow": round(float(parent_slow), 2),
+        }
+
+    # ---- 3. 交易偏向判断 ----
+    def _compute_bias(current_trend: str, parent_trend: str | None, require_aligned: bool) -> str:
+        if parent_trend is None:
+            if current_trend == "uptrend":
+                return "long_primary"
+            elif current_trend == "downtrend":
+                return "short_primary"
+            return "neutral"
+
+        if require_aligned and parent_trend == "ranging":
+            return "neutral"
+
+        if current_trend == parent_trend:
+            if current_trend == "uptrend":
+                return "long_only"
+            elif current_trend == "downtrend":
+                return "short_only"
+            return "neutral"
+
+        if parent_trend == "uptrend":
+            return "long_primary"
+        elif parent_trend == "downtrend":
+            return "short_primary"
+
+        if current_trend == "uptrend":
+            return "long_primary"
+        elif current_trend == "downtrend":
+            return "short_primary"
+        return "neutral"
+
+    bias = _compute_bias(
+        trend,
+        parent_trend_info["trend"] if parent_trend_info else None,
+        p["require_parent_ema_aligned"],
+    )
+
+    # ---- 4. ADX 计算 ----
+    adx_vals = calc_adx(chrono, period=p["adx_period"])
+    pdi_vals = plus_di(chrono, period=p["adx_period"])
+    mdi_vals = minus_di(chrono, period=p["adx_period"])
+
+    current_adx = float(adx_vals[-1]) if len(adx_vals) > 0 else 0.0
+    current_pdi = float(pdi_vals[-1]) if len(pdi_vals) > 0 else 0.0
+    current_mdi = float(mdi_vals[-1]) if len(mdi_vals) > 0 else 0.0
+
+    if current_adx != current_adx:  # NaN check
+        current_adx = 0.0
+
+    # ---- 5. RSI 计算 ----
+    rsi_vals = calc_rsi(chrono, period=p["rsi_period"])
+    current_rsi = float(rsi_vals[-1]) if len(rsi_vals) > 0 else 0.0
+    if current_rsi != current_rsi:
+        current_rsi = 0.0
+
+    # ---- 6. ATR 计算 ----
+    atr_vals = calc_atr(chrono, period=p["adx_period"])
+    current_atr = float(atr_vals[-1]) if len(atr_vals) > 0 else 0.0
+    if current_atr != current_atr or current_atr <= 0:
+        current_atr = 0.0
+
+    # ---- 7. 成交量爆发 ----
+    has_surge, surge_ratio = check_volume_surge(klines, lookback=p["volume_burst_lookback"], surge_ratio=p["volume_burst_ratio"])
+
+    # ---- 8. 震荡判断 ----
+    is_ranging = (current_adx < p["adx_min"]) or (trend == "ranging")
+    if parent_trend_info and parent_trend_info["trend"] == "ranging":
+        is_ranging = True
+
+    # ---- 9. S/R 位识别 ----
+    levels = identify_support_resistance(
+        klines,
+        min_touches=p["min_touches"],
+        lookback=p["sr_lookback"],
+        volume_surge_ratio=1.5,
+        require_rejection=p["require_rejection_candle"],
+        bias=bias,
+        trend_bonus_aligned=p["trend_bonus_aligned"],
+        trend_bonus_counter=p["trend_bonus_counter"],
+        adaptive_swing_window=p["adaptive_swing_window"],
+        swing_window_adx_threshold=p["swing_window_adx_threshold"],
+        swing_window_strong=p["swing_window_strong"],
+        swing_window_weak=p["swing_window_weak"],
+        use_order_blocks=p["use_order_blocks"],
+        use_fvg=p["use_fvg"],
+        rejection_min_wick_ratio=p["rejection_min_wick_ratio"],
+        rejection_max_body_ratio=p["rejection_max_body_ratio"],
+        use_vah_val=p["use_vah_val"],
+        value_area_pct=p["value_area_pct"],
+        vah_val_near_threshold_pct=p["vah_val_near_threshold_pct"],
+        poc_near_threshold_pct=p["poc_near_threshold_pct"],
+        poc_far_threshold_pct=p["poc_far_threshold_pct"],
+        vah_val_near_bonus=p["vah_val_near_bonus"],
+        vah_val_inner_bonus=p["vah_val_inner_bonus"],
+    )
+
+    return {
+        "current_price": round(current_price, 2),
+        "timestamp": timestamp,
+        "trend": trend_info,
+        "parent_trend": parent_trend_info,
+        "bias": bias,
+        "parent_aligned": parent_aligned,
+        "adx": round(current_adx, 1),
+        "plus_di": round(current_pdi, 1),
+        "minus_di": round(current_mdi, 1),
+        "rsi": round(current_rsi, 1),
+        "atr": round(current_atr, 2),
+        "volume_ratio": round(surge_ratio, 2),
+        "has_volume_surge": has_surge,
+        "levels": levels,
+        "is_ranging": is_ranging,
+    }

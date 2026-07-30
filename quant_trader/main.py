@@ -11,7 +11,7 @@ from .core.config_loader import ConfigLoader
 from .core.data_store import DataStore, OrderRecord, SignalRecord
 from .core.kline_manager import KlineDataManager
 from .core.logger import setup_logging
-from .core.status_server import StatusServer
+from .core.query_server import QueryServer
 from .exchange.binance_adapter import BinanceAdapter
 from .exchange.paper_trading import PaperTradingEngine
 from .models import Signal
@@ -51,7 +51,7 @@ class Engine:
         self.exchange: BinanceAdapter | None = None
         self.paper_engine: PaperTradingEngine | None = None
         self.risk_manager: RiskManager | None = None
-        self.status_server: StatusServer | None = None
+        self.status_server: QueryServer | None = None
         self._running = False
         self._paused = False
         self._strategy_cache: dict | None = None
@@ -111,7 +111,7 @@ class Engine:
         )
 
         # 初始化状态 HTTP 服务
-        self.status_server = StatusServer(
+        self.status_server = QueryServer(
             self,
             host=exchange_cfg.status_host,
             port=exchange_cfg.status_port,
@@ -351,9 +351,11 @@ class Engine:
 
         if signal.action == "partial_close":
             if self.paper_engine:
+                # 提取部分止盈级别 ID，传入引擎以更新去重状态
+                tp_level = signal.metadata.get("partial_tp_level") if signal.metadata else None
                 net_pnl = self.paper_engine.partial_close_position(
                     signal.symbol, signal.price, signal.close_ratio, self.data_store,
-                    signal_id=signal_id,
+                    signal_id=signal_id, partial_tp_level=tp_level,
                 )
                 if net_pnl is not None:
                     logger.info(
@@ -367,8 +369,9 @@ class Engine:
             if self.paper_engine:
                 existing = self.paper_engine.positions.get(signal.symbol)
                 if existing:
-                    net_pnl = self.paper_engine._close_position(
-                        signal.symbol, signal.price, signal.metadata.get("reason", "close_signal"),
+                    net_pnl = self.paper_engine.close_position(
+                        signal.symbol, signal.price, self.data_store,
+                        order_type="close", signal_id=signal_id,
                     )
                     if net_pnl is not None:
                         logger.info(
@@ -426,6 +429,7 @@ class Engine:
             data_store=self.data_store,
             metadata=signal.metadata,
             order_type="close" if is_closing else None,
+            signal_id=signal_id,
         )
 
         if order and signal_id is not None:

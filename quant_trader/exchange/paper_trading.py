@@ -11,7 +11,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from ..core.data_store import OrderRecord, PositionRecord
+from ..core.data_store import OrderRecord, PositionRecord, EntryRecord, ClosureRecord
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +49,8 @@ class MockPosition:
     position_id: int | None = None     # 数据库中的持仓 ID
     closed_quantity: float = 0.0       # 累计已平仓数量
     close_count: int = 0               # 平仓次数
+    entry_seq_counter: int = 0         # 入场明细序号计数器
+    partial_tp_triggered: list = field(default_factory=list)  # 已触发的部分止盈级别
 
 
 class PaperTradingEngine:
@@ -78,7 +80,8 @@ class PaperTradingEngine:
                     price: float, leverage: int = 1,
                     stop_loss: float = 0.0, data_store=None,
                     metadata: dict | None = None,
-                    order_type: str = "market") -> MockOrder | None:
+                    order_type: str = "market",
+                    signal_id: int | None = None) -> MockOrder | None:
         """模拟下单。
 
         模拟模式下市价单立即成交，限价单挂入等待成交。
@@ -92,6 +95,7 @@ class PaperTradingEngine:
             leverage: 杠杆倍数
             stop_loss: 止损价
             order_type: 订单类型提示，不传时由 _update_position 根据场景推断
+            signal_id: 触发本笔订单的信号 ID
 
         返回:
             MockOrder 对象，失败返回 None
@@ -134,7 +138,7 @@ class PaperTradingEngine:
 
         # 更新或创建持仓，返回实际 order_type 和 position_id
         order.order_type, order.position_id = self._update_position(
-            order, stop_loss, data_store, metadata=metadata
+            order, stop_loss, data_store, metadata=metadata, signal_id=signal_id
         )
 
         # 同步订单到数据库
@@ -256,8 +260,18 @@ class PaperTradingEngine:
                 position_id=pos.id,
                 closed_quantity=pos.closed_quantity,
                 close_count=pos.close_count,
+                partial_tp_triggered=pos.partial_tp_triggered.split(",") if pos.partial_tp_triggered else [],
             )
             self.positions[pos.symbol] = mock_pos
+
+            # 恢复 entry_seq_counter（从 position_entries 表查询最大 seq）
+            if pos.id is not None:
+                with data_store._get_conn().cursor() as cur:
+                    cur.execute(
+                        "SELECT COALESCE(MAX(seq), 0) FROM position_entries WHERE position_id = %s",
+                        (pos.id,),
+                    )
+                    mock_pos.entry_seq_counter = cur.fetchone()[0]
 
             # 扣除对应的占用资金（恢复被锁定的资金状态）
             if self.default_type == "swap":
@@ -280,7 +294,7 @@ class PaperTradingEngine:
             logger.info("数据库中无未平仓记录，账户状态已重置")
 
     def close_position(self, symbol: str, exit_price: float, data_store=None,
-                       order_type: str = "close") -> float | None:
+                       order_type: str = "close", signal_id: int | None = None) -> float | None:
         """全平。
 
         参数:
@@ -288,6 +302,7 @@ class PaperTradingEngine:
             exit_price: 平仓价格
             data_store: DataStore 实例（可选，用于同步到 DB）
             order_type: 订单类型，"close" / "stop_loss_close" / "take_profit_close"
+            signal_id: 触发平仓的信号 ID（止损时为 None）
 
         返回:
             实现的盈亏，无持仓则返回 None
@@ -323,6 +338,13 @@ class PaperTradingEngine:
         pos.closed_quantity += quantity
         pos.close_count += 1
         pos.realized_pnl += net_pnl
+
+        # FIFO 归因：按 entry 顺序扣减并写入 closures
+        if data_store and pos.position_id is not None:
+            self._close_entries_fifo(
+                data_store, pos.position_id, exit_price, quantity,
+                fee, order_type, pos.side, signal_id,
+            )
 
         # 同步到数据库
         if data_store and pos.position_id is not None:
@@ -385,7 +407,8 @@ class PaperTradingEngine:
                 logger.info("[模拟] 触发止损: %s 现价=%.2f 止损=%.2f",
                             symbol, current_price, pos.stop_loss)
                 pnl = self.close_position(symbol, current_price, data_store,
-                                          order_type="stop_loss_close")
+                                          order_type="stop_loss_close",
+                                          signal_id=None)
 
     def get_position_count(self) -> int:
         """当前持仓数。"""
@@ -440,8 +463,12 @@ class PaperTradingEngine:
 
     def partial_close_position(self, symbol: str, close_price: float,
                                 close_ratio: float, data_store=None,
-                                signal_id: int = None) -> float | None:
+                                signal_id: int = None,
+                                partial_tp_level: str = None) -> float | None:
         """部分平仓指定比例的仓位。
+
+        参数:
+            partial_tp_level: 部分止盈级别 ID（如 "2.0R"），用于去重防止重复触发
 
         返回实现盈亏，无持仓或已全部平仓返回 None。
         """
@@ -477,6 +504,13 @@ class PaperTradingEngine:
         pos.close_count += 1
         pos.realized_pnl += net_pnl
 
+        # FIFO 归因：按 entry 顺序扣减并写入 closures
+        if data_store and pos.position_id is not None:
+            self._close_entries_fifo(
+                data_store, pos.position_id, close_price, close_qty,
+                fee, "partial_close", side, signal_id,
+            )
+
         # 生成订单号并写入 orders 表
         self._order_counter += 1
         order_id = f"PAPER-{self._order_counter}"
@@ -495,6 +529,11 @@ class PaperTradingEngine:
                 order_id=order_id,
                 signal_id=signal_id,
             ))
+
+        # 更新已触发的部分止盈级别
+        if partial_tp_level and partial_tp_level not in pos.partial_tp_triggered:
+            pos.partial_tp_triggered.append(partial_tp_level)
+        triggered_str = ",".join(pos.partial_tp_triggered)
 
         if remaining <= 1e-12:
             # 全部平掉了，同步到 DB 并删除持仓
@@ -519,6 +558,7 @@ class PaperTradingEngine:
                     closed_quantity=pos.closed_quantity,
                     close_count=pos.close_count,
                     pnl=pos.realized_pnl,
+                    partial_tp_triggered=triggered_str,
                 )
 
         self.trades_closed.append({
@@ -543,7 +583,7 @@ class PaperTradingEngine:
         return net_pnl
 
     def _update_position(self, order: MockOrder, stop_loss: float, data_store=None,
-                         metadata: dict | None = None) -> tuple[str, int | None]:
+                         metadata: dict | None = None, signal_id: int | None = None) -> tuple[str, int | None]:
         """更新持仓（开仓或加仓或平仓）。
 
         返回 (order_type, position_id)。
@@ -558,7 +598,7 @@ class PaperTradingEngine:
                 ) else "close"
                 self.close_position(
                     order.symbol, order.price, data_store,
-                    order_type=close_type,
+                    order_type=close_type, signal_id=signal_id,
                 )
                 return close_type, position_id
             # 同向单 = 加仓：检查最大加仓次数
@@ -575,6 +615,11 @@ class PaperTradingEngine:
             existing.entry_price = avg_price
             existing.quantity = total_qty
             existing.add_count += 1
+            # 写入 entry 明细
+            existing.entry_seq_counter += 1
+            self._insert_entry(data_store, existing.position_id,
+                               existing.entry_seq_counter, order.amount,
+                               order.price, signal_id)
             # 同步到数据库
             if data_store and existing.position_id is not None:
                 data_store.update_position(
@@ -607,5 +652,81 @@ class PaperTradingEngine:
             current_price=order.price,
             stop_loss=stop_loss,
             position_id=position_id,
+            entry_seq_counter=1,
         )
+        # 写入 entry 明细（首次开仓 seq=1）
+        self._insert_entry(data_store, position_id, 1, order.amount,
+                           order.price, signal_id)
         return "open", position_id
+
+    def _insert_entry(self, data_store, position_id: int | None,
+                      seq: int, qty: float, price: float,
+                      signal_id: int | None = None):
+        """写入一条入场明细到数据库。"""
+        if data_store and position_id is not None:
+            data_store.insert_entry(EntryRecord(
+                position_id=position_id,
+                seq=seq,
+                orig_qty=qty,
+                remaining_qty=qty,
+                entry_price=price,
+                signal_id=signal_id,
+                status="open",
+            ))
+
+    def _close_entries_fifo(self, data_store, position_id: int,
+                            exit_price: float, total_close_qty: float,
+                            total_fee: float, reason: str, side: str,
+                            signal_id: int | None = None):
+        """按 FIFO 顺序扣减 entries 并写入 closures。
+
+        参数:
+            data_store: DataStore 实例
+            position_id: 持仓 ID
+            exit_price: 出场价格
+            total_close_qty: 本次总平仓数量
+            total_fee: 本次总手续费（按比例分摊到各 closure）
+            reason: 出场原因
+            side: 持仓方向 "buy" / "sell"
+            signal_id: 触发平仓的信号 ID（止损时为 None）
+        """
+        entries = data_store.get_open_entries(position_id)
+        remaining_to_close = total_close_qty
+
+        for entry in entries:
+            if remaining_to_close <= 1e-12:
+                break
+
+            close_qty = min(entry.remaining_qty, remaining_to_close)
+
+            # 计算归因盈亏
+            direction = 1 if side == "buy" else -1
+            raw_pnl = (exit_price - entry.entry_price) * close_qty * direction
+            # 手续费按比例分摊
+            fee_share = total_fee * (close_qty / total_close_qty)
+            attributed_pnl = raw_pnl - fee_share
+
+            # 写入 closure 记录
+            data_store.insert_closure(ClosureRecord(
+                entry_id=entry.id,
+                close_qty=close_qty,
+                entry_price=entry.entry_price,
+                exit_price=exit_price,
+                pnl=attributed_pnl,
+                fee=fee_share,
+                reason=reason,
+                signal_id=signal_id,
+            ))
+
+            # 更新 entry
+            new_remaining = entry.remaining_qty - close_qty
+            new_status = "closed" if new_remaining <= 1e-12 else "open"
+            data_store.update_entry(entry.id, new_remaining, new_status)
+
+            remaining_to_close -= close_qty
+
+        if remaining_to_close > 1e-12:
+            logger.warning(
+                "[归因] 平仓数量 %.4f 超过 entries 剩余数量，未归因 %.4f",
+                total_close_qty, remaining_to_close,
+            )

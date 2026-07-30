@@ -69,6 +69,7 @@ docs/strategies/
 | [02_support_resistance.md](current/02_support_resistance.md) | 支撑/阻力位多周期趋势确认策略（BTC/ETH/SOL） | — |
 | [03_eth_5m.md](current/03_eth_5m.md) | ETH/USDT 5m 短周期策略 | 2026-07-01 |
 | [04_paxg_ema.md](current/04_paxg_ema.md) | PAXG/USDT 双均线趋势跟踪策略 | 2026-07-01 |
+| [05_manual_query.md](current/05_manual_query.md) | 手动交易辅助 S/R 查询功能 | 2026-07-08 |
 
 ## 快速参考
 

@@ -27,8 +27,15 @@ from quant_trader.core.config_loader import ConfigLoader
 from quant_trader.core.data_store import DataStore
 
 
-# 需要归档的交易表
-TRADE_TABLES = ["orders", "signals", "positions", "filter_stats"]
+# 需要归档的交易表（按外键依赖顺序排列：子表在前，父表在后）
+TRADE_TABLES = [
+    "position_entry_closures",  # 依赖 position_entries
+    "position_entries",         # 依赖 positions
+    "orders",                   # 依赖 positions
+    "signals",
+    "filter_stats",
+    "positions",
+]
 
 
 def get_conn(data_store: DataStore):
@@ -46,7 +53,10 @@ def list_archives(data_store: DataStore):
             WHERE table_schema = 'public'
               AND (table_name LIKE 'orders_%%'
                 OR table_name LIKE 'signals_%%'
-                OR table_name LIKE 'positions_%%')
+                OR table_name LIKE 'positions_%%'
+                OR table_name LIKE 'position_entries_%%'
+                OR table_name LIKE 'position_entry_closures_%%'
+                OR table_name LIKE 'filter_stats_%%')
             ORDER BY table_name
         """)
         rows = cur.fetchall()
@@ -60,7 +70,9 @@ def list_archives(data_store: DataStore):
     groups = defaultdict(list)
     for (name,) in rows:
         # 提取日期部分（去掉表名前缀）
-        for prefix in ["orders_", "signals_", "positions_"]:
+        for prefix in ["orders_", "signals_", "positions_",
+                       "position_entries_", "position_entry_closures_",
+                       "filter_stats_"]:
             if name.startswith(prefix):
                 date = name[len(prefix):]
                 break

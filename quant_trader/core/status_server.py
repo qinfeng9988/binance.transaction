@@ -39,7 +39,7 @@ def build_status_app(engine) -> web.Application:
 class StatusServer:
     """管理 aiohttp AppRunner 生命周期。"""
 
-    def __init__(self, engine, host: str = "127.0.0.1", port: int = 8080):
+    def __init__(self, engine, host: str = "127.0.0.1", port: int = 58080):
         self.engine = engine
         self.host = host
         self.port = port

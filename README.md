@@ -7,10 +7,12 @@ quant_trader/
 ├── config/                        # 配置文件目录
 │   ├── exchanges.yaml             # 交易所 API Key、数据库连接、代理配置
 │   ├── strategies.yaml            # 策略配置（币种、周期、参数、开关）
-│   └── risk.yaml                  # 风控参数（杠杆、止损、仓位）
+│   ├── risk.yaml                  # 风控参数（杠杆、止损、仓位）
+│   └── manual_config.yaml         # 手动交易辅助配置（S/R 查询参数）
 ├── core/
 │   ├── config_loader.py           # 配置加载 + 文件热重载
-│   └── data_store.py              # PostgreSQL 数据层
+│   ├── data_store.py              # PostgreSQL 数据层
+│   └── query_server.py            # HTTP 查询服务（状态 + S/R 查询）
 ├── exchange/
 │   ├── binance_adapter.py         # Binance API 封装（ccxt）
 │   └── paper_trading.py           # 模拟交易引擎
@@ -20,11 +22,12 @@ quant_trader/
 │   └── bollinger_bands.py         # 双均线趋势策略（PAXG）
 ├── technical/
 │   ├── indicators.py              # 技术指标（RSI/EMA/MACD/布林带）
-│   └── support_resistance.py      # 支撑/压力位识别
+│   └── support_resistance.py      # 支撑/压力识别 + S/R 纯分析函数
 ├── risk/
 │   └── manager.py                 # 风控检查（杠杆/止损/仓位）
 ├── main.py                        # 主程序入口
 ├── status.py                      # 查看账户状态
+├── query_sr.py                    # 手动交易 S/R 查询工具
 ├── reset.py                       # 数据归档与重置
 ├── requirements.txt               # Python 依赖
 └── logs/                          # 运行日志
@@ -216,6 +219,79 @@ position_limits:
 ---
 
 ## 常用操作
+
+### 手动交易 S/R 查询
+
+在量化程序自动交易的同时，提供手动交易辅助查询功能。查询工具通过 HTTP 调用引擎的查询服务，获取策略视角下的 S/R 分析结果。
+
+**前提条件**：引擎必须处于运行状态。
+
+#### 开盘前查询（默认模式）
+
+```bash
+# 默认查询 SOL 15m 周期的 S/R 位
+python -m quant_trader.query_sr --symbol SOL
+
+# 指定周期
+python -m quant_trader.query_sr --symbol BTC --timeframe 1h
+python -m quant_trader.query_sr --symbol ETH --timeframe 4h
+```
+
+输出内容：
+- 当前价格、趋势偏向、ADX、RSI、ATR
+- 支撑位列表（按质量排序，含距离百分比）
+- 压力位列表（按质量排序，含距离百分比）
+- 建议止损位（手动缓冲版 ATR×5.5）
+
+#### 持仓监控模式
+
+```bash
+# 持仓中查询结构化止损建议
+python -m quant_trader.query_sr --symbol SOL --timeframe 15m \
+    --position-mode --entry-price 67.0 --side long --qty 10
+```
+
+输出内容：
+- 当前价格、入场价格、浮动盈亏
+- 趋势偏向、ADX、RSI
+- 结构化止损建议（基于 S/R 位，含距离百分比）
+- ATR 止损参考值（含距离百分比）
+- 推荐止盈 TP1/TP2（基于 S/R 位质量分排序，不足时 ATR 备选）
+- 最近高质量支撑位和阻力位（含质量分和中文标签）
+
+#### 参数说明
+
+| 参数 | 必填 | 说明 | 示例 |
+|------|------|------|------|
+| `--symbol` | 是 | 交易对符号 | `SOL`, `BTC`, `ETH` |
+| `--timeframe` | 否 | K 线周期，默认 `15m` | `15m`, `30m`, `1h`, `4h`, `1d` |
+| `--position-mode` | 否 | 启用持仓监控模式 | 无 |
+| `--entry-price` | 持仓模式必填 | 入场价格 | `67.0` |
+| `--side` | 持仓模式必填 | 持仓方向 | `long` / `short` |
+| `--qty` | 持仓模式必填 | 持仓数量 | `10` |
+| `--host` | 否 | 查询服务主机，默认从配置读取 | `127.0.0.1` |
+| `--port` | 否 | 查询服务端口，默认从配置读取 | `8080` |
+
+#### 手动交易配置
+
+手动交易参数独立于量化策略配置，位于 `quant_trader/config/manual_config.yaml`：
+
+```yaml
+# ATR 止损倍数（手动交易使用更宽松的止损）
+atr_multiplier: 5.5
+
+# 显示 S/R 位数量
+show_levels: 5
+
+# ADX 阈值
+adx_threshold: 22.0
+
+# 其他参数...
+```
+
+修改后无需重启引擎，下次查询自动生效。
+
+---
 
 ### 查看账户状态
 
@@ -475,11 +551,19 @@ macd_line, signal_line, histogram = macd(klines, fast=12, slow=26, signal=9)
 upper, middle, lower = bollinger_bands(klines, period=20, std=2.0)
 
 # 支撑/压力位识别
-from technical.support_resistance import identify_support_resistance
+from technical.support_resistance import identify_support_resistance, analyze_sr_levels
 
 levels = identify_support_resistance(klines, min_touches=2, lookback=100)
 # levels["support"]    -> 支撑位列表 [{price, strength}, ...]
 # levels["resistance"] -> 压力位列表 [{price, strength}, ...]
+
+# S/R 纯分析函数（不生成交易信号，供查询工具使用）
+analysis = analyze_sr_levels(klines, parent_klines=parent_klines, params={})
+# analysis["trend"]    -> {"trend": "uptrend"/"downtrend"/"ranging", ...}
+# analysis["levels"]   -> {"support": [...], "resistance": [...]}
+# analysis["adx"]      -> ADX 当前值
+# analysis["atr"]      -> ATR 当前值
+# analysis["bias"]     -> 交易偏向
 ```
 
 ---
@@ -548,6 +632,7 @@ binance:
 | [docs/strategies/current/02_support_resistance.md](docs/strategies/current/02_support_resistance.md) | BTC/ETH/SOL 支撑/阻力位策略（v1.5.0） |
 | [docs/strategies/current/03_eth_5m.md](docs/strategies/current/03_eth_5m.md) | ETH/USDT 5m 短周期策略 |
 | [docs/strategies/current/04_paxg_ema.md](docs/strategies/current/04_paxg_ema.md) | PAXG/USDT 双均线趋势策略 |
+| [docs/strategies/current/05_manual_query.md](docs/strategies/current/05_manual_query.md) | 手动交易辅助 S/R 查询功能 |
 
 ## 常见问题
 

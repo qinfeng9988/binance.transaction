@@ -1,0 +1,69 @@
+# 手动交易辅助查询配置
+# 本配置文件用于手动交易辅助工具的参数设置
+# 与量化自动交易程序的配置相互独立
+
+# ATR 止损倍数（手动交易使用更宽松的止损）
+atr_multiplier: 5.5
+
+# 显示 S/R 位数量
+show_levels: 5
+
+# ADX 阈值
+adx_threshold: 22.0
+
+# 趋势确认周期（用于显示上级周期趋势）
+trend_timeframe: "1h"
+
+# EMA 参数
+ema_fast_period: 21
+ema_slow_period: 50
+ema_gap_threshold_pct: 1.0
+
+# RSI 参数
+rsi_period: 14
+
+# 成交量爆发参数
+volume_burst_lookback: 50
+volume_burst_ratio: 1.8
+
+# S/R 识别参数
+sr_lookback: 200
+min_touches: 3.0
+entry_threshold_pct: 0.5
+
+# 结构化止损参数
+structured_stop:
+  buffer_pct: 0.3
+  quality_buffer_pct: 0.2
+  min_r: 1.5
+
+# 部分止盈参数
+partial_tp_levels:
+  - r_threshold: 2.0
+    close_pct: 0.4
+  - r_threshold: 3.5
+    close_pct: 0.3
+
+# 拒绝蜡烛参数
+require_rejection_candle: false
+rejection_min_wick_ratio: 2.0
+rejection_max_body_ratio: 0.5
+
+# 自适应摆动窗口
+adaptive_swing_window: false
+swing_window_adx_threshold: 25.0
+swing_window_strong: 3
+swing_window_weak: 2
+
+# 高级功能开关
+use_order_blocks: false
+use_fvg: false
+use_vah_val: false
+
+# VAH/VAL 参数
+value_area_pct: 0.70
+vah_val_near_threshold_pct: 0.005
+poc_near_threshold_pct: 0.005
+poc_far_threshold_pct: 0.007
+vah_val_near_bonus: 0.5
+vah_val_inner_bonus: 0.3
