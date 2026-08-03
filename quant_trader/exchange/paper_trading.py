@@ -168,12 +168,9 @@ class PaperTradingEngine:
             leverage=order.leverage,
             timestamp=order.timestamp,
             mode="paper",
-            position_id=order.position_id,
-            order_type=order.order_type,
             fee=order.fee,
             status=order.status,
             order_id=order.order_id,
-            signal_id=None,
         )
 
     def restore_from_db(self, data_store) -> None:
@@ -200,7 +197,7 @@ class PaperTradingEngine:
             cur.execute(
                 """SELECT p.id, p.symbol, p.side, p.entry_price, p.closed_quantity,
                           p.leverage, p.entry_time, p.exit_price, p.exit_time, p.pnl,
-                          p.close_count
+                          p.close_count, p.total_fee
                    FROM positions p WHERE p.status = 'closed'"""
             )
             closed_rows = cur.fetchall()
@@ -216,13 +213,7 @@ class PaperTradingEngine:
                 exit_time = r[8]
                 pnl = float(r[9])
                 close_count = r[10]
-
-                # 2b. 计算该持仓的总手续费
-                cur.execute(
-                    "SELECT COALESCE(SUM(fee), 0) FROM orders WHERE position_id = %s",
-                    (pos_id,)
-                )
-                total_fee = float(cur.fetchone()[0])
+                total_fee = float(r[11] or 0)
 
                 self.trades_closed.append({
                     "symbol": symbol,
@@ -294,7 +285,8 @@ class PaperTradingEngine:
             logger.info("数据库中无未平仓记录，账户状态已重置")
 
     def close_position(self, symbol: str, exit_price: float, data_store=None,
-                       order_type: str = "close", signal_id: int | None = None) -> float | None:
+                       order_type: str = "close", signal_id: int | None = None,
+                       order_id: str | None = None) -> float | None:
         """全平。
 
         参数:
@@ -303,6 +295,7 @@ class PaperTradingEngine:
             data_store: DataStore 实例（可选，用于同步到 DB）
             order_type: 订单类型，"close" / "stop_loss_close" / "take_profit_close"
             signal_id: 触发平仓的信号 ID（止损时为 None）
+            order_id: 触发本次平仓的订单编号
 
         返回:
             实现的盈亏，无持仓则返回 None
@@ -343,7 +336,7 @@ class PaperTradingEngine:
         if data_store and pos.position_id is not None:
             self._close_entries_fifo(
                 data_store, pos.position_id, exit_price, quantity,
-                fee, order_type, pos.side, signal_id,
+                fee, order_type, pos.side, signal_id, order_id=order_id,
             )
 
         # 同步到数据库
@@ -354,6 +347,7 @@ class PaperTradingEngine:
                 closed_quantity=pos.closed_quantity,
                 pnl=pos.realized_pnl,
                 close_count=pos.close_count,
+                total_fee=fee,
             )
 
         # 记录已平仓
@@ -504,16 +498,18 @@ class PaperTradingEngine:
         pos.close_count += 1
         pos.realized_pnl += net_pnl
 
+        # 生成订单号
+        self._order_counter += 1
+        order_id = f"PAPER-{self._order_counter}"
+
         # FIFO 归因：按 entry 顺序扣减并写入 closures
         if data_store and pos.position_id is not None:
             self._close_entries_fifo(
                 data_store, pos.position_id, close_price, close_qty,
-                fee, "partial_close", side, signal_id,
+                fee, "partial_close", side, signal_id, order_id=order_id,
             )
 
-        # 生成订单号并写入 orders 表
-        self._order_counter += 1
-        order_id = f"PAPER-{self._order_counter}"
+        # 写入 orders 表
         if data_store and pos.position_id is not None:
             data_store.insert_order(OrderRecord(
                 symbol=symbol,
@@ -522,12 +518,9 @@ class PaperTradingEngine:
                 leverage=pos.leverage,
                 timestamp=datetime.now(tz=timezone.utc),
                 mode="paper",
-                position_id=pos.position_id,
-                order_type="partial_close",
                 fee=fee,
                 status="filled",
                 order_id=order_id,
-                signal_id=signal_id,
             ))
 
         # 更新已触发的部分止盈级别
@@ -544,6 +537,7 @@ class PaperTradingEngine:
                     closed_quantity=pos.closed_quantity,
                     pnl=pos.realized_pnl,
                     close_count=pos.close_count,
+                    total_fee=fee,
                 )
             del self.positions[symbol]
         else:
@@ -558,6 +552,7 @@ class PaperTradingEngine:
                     closed_quantity=pos.closed_quantity,
                     close_count=pos.close_count,
                     pnl=pos.realized_pnl,
+                    total_fee=fee,
                     partial_tp_triggered=triggered_str,
                 )
 
@@ -588,6 +583,9 @@ class PaperTradingEngine:
 
         返回 (order_type, position_id)。
         """
+        # 计算入场手续费
+        entry_fee = order.price * order.amount * self.fee_rate
+
         if order.symbol in self.positions:
             existing = self.positions[order.symbol]
             # 反向单 = 平仓
@@ -599,6 +597,7 @@ class PaperTradingEngine:
                 self.close_position(
                     order.symbol, order.price, data_store,
                     order_type=close_type, signal_id=signal_id,
+                    order_id=order.order_id,
                 )
                 return close_type, position_id
             # 同向单 = 加仓：检查最大加仓次数
@@ -619,7 +618,8 @@ class PaperTradingEngine:
             existing.entry_seq_counter += 1
             self._insert_entry(data_store, existing.position_id,
                                existing.entry_seq_counter, order.amount,
-                               order.price, signal_id)
+                               order.price, signal_id,
+                               order_id=order.order_id, entry_fee=entry_fee)
             # 同步到数据库
             if data_store and existing.position_id is not None:
                 data_store.update_position(
@@ -627,6 +627,7 @@ class PaperTradingEngine:
                     quantity=total_qty,
                     entry_price=avg_price,
                     stop_loss=stop_loss,
+                    total_fee=entry_fee,
                 )
             return "add", existing.position_id
 
@@ -642,7 +643,7 @@ class PaperTradingEngine:
                 entry_time=datetime.now(tz=timezone.utc),
                 stop_loss=stop_loss,
                 status="open",
-            ))
+            ), total_fee=entry_fee)
         self.positions[order.symbol] = MockPosition(
             symbol=order.symbol,
             side=order.side,
@@ -656,12 +657,15 @@ class PaperTradingEngine:
         )
         # 写入 entry 明细（首次开仓 seq=1）
         self._insert_entry(data_store, position_id, 1, order.amount,
-                           order.price, signal_id)
+                           order.price, signal_id,
+                           order_id=order.order_id, entry_fee=entry_fee)
         return "open", position_id
 
     def _insert_entry(self, data_store, position_id: int | None,
                       seq: int, qty: float, price: float,
-                      signal_id: int | None = None):
+                      signal_id: int | None = None,
+                      order_id: str | None = None,
+                      entry_fee: float = 0.0):
         """写入一条入场明细到数据库。"""
         if data_store and position_id is not None:
             data_store.insert_entry(EntryRecord(
@@ -670,6 +674,8 @@ class PaperTradingEngine:
                 orig_qty=qty,
                 remaining_qty=qty,
                 entry_price=price,
+                entry_fee=entry_fee,
+                order_id=order_id,
                 signal_id=signal_id,
                 status="open",
             ))
@@ -677,7 +683,8 @@ class PaperTradingEngine:
     def _close_entries_fifo(self, data_store, position_id: int,
                             exit_price: float, total_close_qty: float,
                             total_fee: float, reason: str, side: str,
-                            signal_id: int | None = None):
+                            signal_id: int | None = None,
+                            order_id: str | None = None):
         """按 FIFO 顺序扣减 entries 并写入 closures。
 
         参数:
@@ -685,10 +692,11 @@ class PaperTradingEngine:
             position_id: 持仓 ID
             exit_price: 出场价格
             total_close_qty: 本次总平仓数量
-            total_fee: 本次总手续费（按比例分摊到各 closure）
+            total_fee: 本次平仓总手续费（按比例分摊到各 closure）
             reason: 出场原因
             side: 持仓方向 "buy" / "sell"
             signal_id: 触发平仓的信号 ID（止损时为 None）
+            order_id: 触发本次平仓的订单编号
         """
         entries = data_store.get_open_entries(position_id)
         remaining_to_close = total_close_qty
@@ -702,9 +710,11 @@ class PaperTradingEngine:
             # 计算归因盈亏
             direction = 1 if side == "buy" else -1
             raw_pnl = (exit_price - entry.entry_price) * close_qty * direction
-            # 手续费按比例分摊
+            # 平仓手续费按比例分摊
             fee_share = total_fee * (close_qty / total_close_qty)
-            attributed_pnl = raw_pnl - fee_share
+            # 入场手续费按比例分摊
+            entry_fee_share = entry.entry_fee * (close_qty / entry.orig_qty)
+            attributed_pnl = raw_pnl - fee_share - entry_fee_share
 
             # 写入 closure 记录
             data_store.insert_closure(ClosureRecord(
@@ -715,6 +725,7 @@ class PaperTradingEngine:
                 pnl=attributed_pnl,
                 fee=fee_share,
                 reason=reason,
+                order_id=order_id,
                 signal_id=signal_id,
             ))
 

@@ -40,21 +40,15 @@ class OrderRecord:
     leverage: int
     timestamp: datetime
     mode: str                        # "paper" 或 "live"
-    position_id: int                 # 关联持仓 ID
-    order_type: str = "open"         # "open" / "add" / "close" / "partial_close" / "stop_loss_close" / "take_profit_close"
-    fee: float = 0.0                 # 本笔手续费（USDT）
+    fee: float = 0.0                 # 本笔手续费（USDT），仅流水记录，归因走 entries.entry_fee + closures.fee
     status: str = "filled"           # "filled" / "rejected" / "pending"
     order_id: str = ""               # 订单编号
-    signal_id: int | None = None     # 触发该订单的信号 ID
 
     def __post_init__(self):
         self.price = float(self.price)
         self.quantity = float(self.quantity)
         self.leverage = int(self.leverage)
         self.fee = float(self.fee)
-        self.position_id = int(self.position_id)
-        if self.signal_id is not None:
-            self.signal_id = int(self.signal_id)
 
 
 @dataclass
@@ -115,6 +109,8 @@ class EntryRecord:
     orig_qty: float
     remaining_qty: float
     entry_price: float
+    entry_fee: float = 0.0
+    order_id: str | None = None
     signal_id: int | None = None
     status: str = "open"
     id: int | None = None
@@ -125,6 +121,7 @@ class EntryRecord:
         self.orig_qty = float(self.orig_qty)
         self.remaining_qty = float(self.remaining_qty)
         self.entry_price = float(self.entry_price)
+        self.entry_fee = float(self.entry_fee)
         if self.signal_id is not None:
             self.signal_id = int(self.signal_id)
         if self.id is not None:
@@ -141,6 +138,7 @@ class ClosureRecord:
     pnl: float
     fee: float
     reason: str
+    order_id: str | None = None
     signal_id: int | None = None
 
     def __post_init__(self):
@@ -222,25 +220,20 @@ CREATE TABLE IF NOT EXISTS orders (
     leverage INTEGER DEFAULT 1,                     -- 杠杆倍数
     timestamp TIMESTAMPTZ NOT NULL,                 -- 下单时间（带时区）
     mode VARCHAR(20) NOT NULL,                      -- 交易模式，可选值："paper"(模拟交易) | "live_confirm"(实盘人工确认) | "live_auto"(实盘全自动)
-    position_id INTEGER NOT NULL REFERENCES positions(id) ON DELETE CASCADE,  -- 关联持仓 ID
-    order_type VARCHAR(20) DEFAULT 'open',          -- 订单类型："open"=开仓 | "add"=加仓 | "close"=反向信号全平 | "partial_close"=部分平仓 | "stop_loss_close"=止损平仓 | "take_profit_close"=止盈平仓
     fee NUMERIC(20,8) DEFAULT 0,                   -- 本笔订单手续费（USDT）
     status VARCHAR(20) DEFAULT 'filled',            -- 订单状态："filled"=已成交 | "rejected"=已拒绝 | "pending"=待成交
     order_id VARCHAR(50) DEFAULT '',                -- 订单编号，模拟单以 "PAPER-" 前缀，真实单为交易所返回的 ID
-    signal_id INTEGER REFERENCES signals(id) ON DELETE SET NULL,  -- 触发该订单的信号
     create_time TIMESTAMPTZ NOT NULL DEFAULT NOW(), -- 首次写入时间
     update_time TIMESTAMPTZ NOT NULL DEFAULT NOW()  -- 最后更新时间
 );
 
 -- 订单表注释
-COMMENT ON TABLE orders IS '交易订单记录表，包含模拟和真实下单的成交流水';
+COMMENT ON TABLE orders IS '交易订单记录表，成交流水。归因查询走 position_entries/position_entry_closures 的 order_id 关联';
 COMMENT ON COLUMN orders.price IS '实际成交价格（USDT）';
 COMMENT ON COLUMN orders.quantity IS '成交数量，正数表示开仓/加仓，负数表示减仓/平仓（基础币数量）';
 COMMENT ON COLUMN orders.leverage IS '实际使用的杠杆倍数';
 COMMENT ON COLUMN orders.mode IS '交易模式："paper"=模拟交易(不下真实订单), "live_confirm"=实盘需人工确认, "live_auto"=实盘全自动';
-COMMENT ON COLUMN orders.position_id IS '关联的持仓 ID';
-COMMENT ON COLUMN orders.order_type IS '订单类型："open"=开仓, "add"=加仓, "close"=反向信号全平, "partial_close"=部分平仓, "stop_loss_close"=止损平仓, "take_profit_close"=止盈平仓';
-COMMENT ON COLUMN orders.fee IS '本笔订单手续费（USDT）';
+COMMENT ON COLUMN orders.fee IS '本笔订单手续费（USDT），仅流水记录对账用；归因手续费走 entries.entry_fee + closures.fee';
 COMMENT ON COLUMN orders.status IS '订单状态："filled"=已成交, "rejected"=已拒绝, "pending"=待成交';
 COMMENT ON COLUMN orders.order_id IS '订单编号，模拟单格式 "PAPER-1"，真实单为 Binance 返回的 orderId';
 
@@ -258,17 +251,18 @@ CREATE TABLE IF NOT EXISTS positions (
     stop_loss NUMERIC(20,8) DEFAULT 0,             -- 止损价，做多时低于此价止损，做空时高于此价止损
     exit_price NUMERIC(20,8) DEFAULT 0,            -- 最后一次平仓价格（未平仓时为 0）
     exit_time TIMESTAMPTZ,                          -- 最后一次平仓时间（未平仓时为 NULL）
-    pnl NUMERIC(20,8) DEFAULT 0,                   -- 累计已实现盈亏（USDT，正=盈利，负=亏损）
+    pnl NUMERIC(20,8) DEFAULT 0,                   -- 累计已实现盈亏（USDT，正=盈利，负=亏损，已扣除手续费）
     status VARCHAR(10) DEFAULT 'open',             -- 持仓状态，可选值："open"(持仓中) | "closed"(已全平)
     closed_quantity NUMERIC(20,8) DEFAULT 0,       -- 累计已平仓数量
     close_count INTEGER DEFAULT 0,                  -- 平仓次数
+    total_fee NUMERIC(20,8) DEFAULT 0,             -- 累计总手续费（USDT），= SUM(entries.entry_fee) + SUM(closures.fee)
     partial_tp_triggered TEXT DEFAULT '',           -- 已触发的部分止盈级别（逗号分隔，如 "2.0R,3.5R"）
     create_time TIMESTAMPTZ NOT NULL DEFAULT NOW(), -- 首次写入时间
     update_time TIMESTAMPTZ NOT NULL DEFAULT NOW()  -- 最后更新时间
 );
 
 -- 持仓表注释
-COMMENT ON TABLE positions IS '交易持仓记录表，一个仓位一条记录，关联 orders 表中的开仓/加仓/平仓订单';
+COMMENT ON TABLE positions IS '交易持仓记录表，一个仓位一条记录，通过 position_entries/position_entry_closures 关联订单';
 COMMENT ON COLUMN positions.side IS '持仓方向："buy"=做多(多单), "sell"=做空(空单)';
 COMMENT ON COLUMN positions.entry_price IS '加权平均入场价格（USDT），加仓时重新计算';
 COMMENT ON COLUMN positions.quantity IS '当前剩余持仓数量（基础币数量），加仓增加，平仓减少';
@@ -276,10 +270,11 @@ COMMENT ON COLUMN positions.leverage IS '开仓时使用的杠杆倍数';
 COMMENT ON COLUMN positions.stop_loss IS '止损触发价，价格触及此价时应自动平仓';
 COMMENT ON COLUMN positions.exit_price IS '最后一次平仓价格（USDT），未全平前为 0';
 COMMENT ON COLUMN positions.exit_time IS '最后一次平仓时间，未全平前为 NULL';
-COMMENT ON COLUMN positions.pnl IS '累计已实现盈亏（USDT），每次部分平仓和全平时累加';
+COMMENT ON COLUMN positions.pnl IS '累计已实现盈亏（USDT，已扣除手续费），每次部分平仓和全平时累加';
 COMMENT ON COLUMN positions.status IS '持仓状态："open"=持仓中, "closed"=已全平';
 COMMENT ON COLUMN positions.closed_quantity IS '累计已平仓数量（基础币数量）';
 COMMENT ON COLUMN positions.close_count IS '平仓次数（含部分平仓和全平）';
+COMMENT ON COLUMN positions.total_fee IS '累计总手续费（USDT），= SUM(entries.entry_fee) + SUM(closures.fee)，开仓/加仓/平仓时累加更新';
 COMMENT ON COLUMN positions.partial_tp_triggered IS '已触发的部分止盈级别，逗号分隔（如 "2.0R,3.5R"），防止同一级别重复触发';
 
 -- ============================================================
@@ -292,6 +287,8 @@ CREATE TABLE IF NOT EXISTS position_entries (
     orig_qty NUMERIC(20,8) NOT NULL,                -- 原始入场数量（不变）
     remaining_qty NUMERIC(20,8) NOT NULL,            -- 剩余未平数量（每次平仓递减）
     entry_price NUMERIC(20,8) NOT NULL,              -- 本笔入场价格（不变）
+    entry_fee NUMERIC(20,8) NOT NULL DEFAULT 0,      -- 本笔入场手续费（USDT）
+    order_id VARCHAR(50),                            -- 关联订单编号
     signal_id INTEGER REFERENCES signals(id) ON DELETE SET NULL,
     status VARCHAR(10) DEFAULT 'open',              -- "open" / "closed"
     create_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -303,6 +300,8 @@ COMMENT ON TABLE position_entries IS '入场明细表，每笔开仓/加仓一�
 COMMENT ON COLUMN position_entries.seq IS '入场顺序，1=首次开仓, 2=第一次加仓, 以此类推';
 COMMENT ON COLUMN position_entries.orig_qty IS '原始入场数量（不变）';
 COMMENT ON COLUMN position_entries.remaining_qty IS '剩余未平数量，每次平仓递减，归零时 status 变为 closed';
+COMMENT ON COLUMN position_entries.entry_fee IS '本笔入场手续费（USDT），归因 PNL 计算时按 close_qty/orig_qty 比例分摊到 closure';
+COMMENT ON COLUMN position_entries.order_id IS '关联订单编号，指向 orders.order_id，建立 Entry → Order 的直接关联';
 COMMENT ON COLUMN position_entries.signal_id IS '触发本笔入场的信号 ID';
 
 -- ============================================================
@@ -314,18 +313,20 @@ CREATE TABLE IF NOT EXISTS position_entry_closures (
     close_qty NUMERIC(20,8) NOT NULL,               -- 本次平仓数量
     entry_price NUMERIC(20,8) NOT NULL,              -- 入场价（冗余，方便查询）
     exit_price NUMERIC(20,8) NOT NULL,               -- 出场价
-    pnl NUMERIC(20,8) NOT NULL,                      -- 本笔归因盈亏（已扣分摊手续费）
-    fee NUMERIC(20,8) NOT NULL,                      -- 本笔分摊的手续费
+    pnl NUMERIC(20,8) NOT NULL,                      -- 本笔归因盈亏（已扣平仓手续费和入场手续费分摊）
+    fee NUMERIC(20,8) NOT NULL,                      -- 本笔平仓手续费分摊
     reason VARCHAR(20) NOT NULL,                     -- "partial_close" / "stop_loss_close" / "take_profit_close" / "close"
+    order_id VARCHAR(50),                            -- 关联订单编号
     signal_id INTEGER REFERENCES signals(id) ON DELETE SET NULL,
     close_time TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 COMMENT ON TABLE position_entry_closures IS '出场明细表，每笔平仓按 FIFO 扣减 entries 生成，同一 entry 可有多条 closure';
 COMMENT ON COLUMN position_entry_closures.close_qty IS '本次平仓数量（从对应 entry 中扣减的部分）';
-COMMENT ON COLUMN position_entry_closures.pnl IS '本笔归因盈亏（已扣分摊手续费）';
-COMMENT ON COLUMN position_entry_closures.fee IS '本笔分摊的手续费，按各 entry 被扣减数量比例分摊';
+COMMENT ON COLUMN position_entry_closures.pnl IS '本笔归因盈亏，公式: (exit_price - entry_price) × close_qty × direction - fee - entry_fee × (close_qty / orig_qty)';
+COMMENT ON COLUMN position_entry_closures.fee IS '本笔平仓手续费分摊，按 close_qty / total_close_qty 比例分摊';
 COMMENT ON COLUMN position_entry_closures.reason IS '出场原因: partial_close=部分平仓, stop_loss_close=止损, take_profit_close=止盈, close=反向信号全平';
+COMMENT ON COLUMN position_entry_closures.order_id IS '关联订单编号，指向 orders.order_id，同一平仓订单产生的多条 closure 共享同一 order_id';
 COMMENT ON COLUMN position_entry_closures.signal_id IS '触发本次平仓的信号 ID，止损时为 NULL';
 
 -- ============================================================
@@ -334,7 +335,6 @@ COMMENT ON COLUMN position_entry_closures.signal_id IS '触发本次平仓的信
 CREATE INDEX IF NOT EXISTS idx_klines_symbol_tf ON klines(symbol, timeframe, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_signals_symbol ON signals(symbol, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_orders_symbol ON orders(symbol, timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_orders_position ON orders(position_id, timestamp ASC);
 CREATE INDEX IF NOT EXISTS idx_positions_open ON positions(status) WHERE status = 'open';
 
 -- ============================================================
@@ -359,6 +359,8 @@ CREATE INDEX IF NOT EXISTS idx_entries_position ON position_entries(position_id,
 CREATE INDEX IF NOT EXISTS idx_entries_open ON position_entries(status) WHERE status = 'open';
 CREATE INDEX IF NOT EXISTS idx_entry_closures_entry ON position_entry_closures(entry_id, close_time ASC);
 CREATE INDEX IF NOT EXISTS idx_entry_closures_signal ON position_entry_closures(signal_id);
+CREATE INDEX IF NOT EXISTS idx_entries_order ON position_entries(order_id);
+CREATE INDEX IF NOT EXISTS idx_closures_order ON position_entry_closures(order_id);
 
 -- ============================================================
 -- 自动刷新 update_time 的通用触发器
@@ -456,9 +458,66 @@ class DataStore:
     def _init_schema(self):
         """创建表和索引（如不存在），并为已有数据库执行迁移。"""
         with self._conn.cursor() as cur:
-            # 再创建新表和索引
+            # 先执行迁移：为已有数据库添加新字段（必须在 SCHEMA_SQL 之前，否则 COMMENT 会失败）
+            self._run_migrations(cur)
+            # 再创建新表和索引、更新 COMMENT
             cur.execute(SCHEMA_SQL)
         logger.debug("数据库表结构已初始化")
+
+    def _run_migrations(self, cur):
+        """执行数据库迁移：添加新字段、删除旧字段。"""
+        # 检查 position_entries 是否缺少新字段
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'position_entries' AND column_name = 'entry_fee'
+        """)
+        if not cur.fetchone():
+            cur.execute("ALTER TABLE position_entries ADD COLUMN entry_fee NUMERIC(20,8) NOT NULL DEFAULT 0")
+            cur.execute("ALTER TABLE position_entries ADD COLUMN order_id VARCHAR(50)")
+            cur.execute("COMMENT ON COLUMN position_entries.entry_fee IS '本笔入场手续费（USDT），归因 PNL 计算时按 close_qty/orig_qty 比例分摊到 closure'")
+            cur.execute("COMMENT ON COLUMN position_entries.order_id IS '关联订单编号，指向 orders.order_id，建立 Entry → Order 的直接关联'")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_entries_order ON position_entries(order_id)")
+            logger.info("迁移: position_entries 新增 entry_fee、order_id 字段")
+
+        # 检查 position_entry_closures 是否缺少 order_id
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'position_entry_closures' AND column_name = 'order_id'
+        """)
+        if not cur.fetchone():
+            cur.execute("ALTER TABLE position_entry_closures ADD COLUMN order_id VARCHAR(50)")
+            cur.execute("COMMENT ON COLUMN position_entry_closures.order_id IS '关联订单编号，指向 orders.order_id，同一平仓订单产生的多条 closure 共享同一 order_id'")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_closures_order ON position_entry_closures(order_id)")
+            logger.info("迁移: position_entry_closures 新增 order_id 字段")
+
+        # 检查 positions 是否缺少 total_fee
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'positions' AND column_name = 'total_fee'
+        """)
+        if not cur.fetchone():
+            cur.execute("ALTER TABLE positions ADD COLUMN total_fee NUMERIC(20,8) DEFAULT 0")
+            cur.execute("COMMENT ON COLUMN positions.total_fee IS '累计总手续费（USDT），= SUM(entries.entry_fee) + SUM(closures.fee)，开仓/加仓/平仓时累加更新'")
+            logger.info("迁移: positions 新增 total_fee 字段")
+
+        # 删除 orders 表冗余字段（仅在有数据时安全删除，无数据时直接删）
+        for col in ['position_id', 'order_type', 'signal_id']:
+            cur.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'orders' AND column_name = %s
+            """, (col,))
+            if cur.fetchone():
+                cur.execute(f"ALTER TABLE orders DROP COLUMN {col}")
+                logger.info("迁移: orders 删除 %s 字段", col)
+
+        # 删除 idx_orders_position 索引（如果存在）
+        cur.execute("""
+            SELECT indexname FROM pg_indexes
+            WHERE tablename = 'orders' AND indexname = 'idx_orders_position'
+        """)
+        if cur.fetchone():
+            cur.execute("DROP INDEX idx_orders_position")
+            logger.info("迁移: 删除 idx_orders_position 索引")
 
     def _get_conn(self) -> psycopg2.extensions.connection:
         """获取连接，如已断开则自动重连。"""
@@ -534,38 +593,35 @@ class DataStore:
     # ==================== 订单记录 ====================
 
     def insert_order(self, order: OrderRecord) -> int:
-        """记录一笔订单，返回订单 ID。
-
-        新流程：先插 positions（status='open'），再插 orders（带 position_id）。
-        """
+        """记录一笔订单，返回订单数据库 ID。"""
         with self._get_conn().cursor() as cur:
             cur.execute(
                 """INSERT INTO orders (symbol, price, quantity, leverage, timestamp,
-                                       mode, position_id, order_type, fee, status,
-                                       order_id, signal_id)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                       mode, fee, status, order_id)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
                 (order.symbol, order.price, order.quantity, order.leverage,
-                 order.timestamp, order.mode, order.position_id, order.order_type,
-                 order.fee, order.status, order.order_id, order.signal_id),
+                 order.timestamp, order.mode, order.fee, order.status,
+                 order.order_id),
             )
             return cur.fetchone()[0]
 
     # ==================== 持仓管理 ====================
 
-    def open_position(self, position: PositionRecord) -> int:
-        """开仓记录，返回持仓 ID。先插 positions，再插 orders。"""
+    def open_position(self, position: PositionRecord, total_fee: float = 0.0) -> int:
+        """开仓记录，返回持仓 ID。"""
         with self._get_conn().cursor() as cur:
             cur.execute(
                 """INSERT INTO positions (symbol, side, entry_price, quantity, leverage,
                                           entry_time, stop_loss, status,
-                                          closed_quantity, close_count, partial_tp_triggered)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                          closed_quantity, close_count, total_fee,
+                                          partial_tp_triggered)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
                 (position.symbol, position.side, position.entry_price,
                  position.quantity, position.leverage, position.entry_time,
                  position.stop_loss, position.status,
-                 position.closed_quantity, position.close_count,
+                 position.closed_quantity, position.close_count, total_fee,
                  position.partial_tp_triggered),
             )
             return cur.fetchone()[0]
@@ -573,8 +629,12 @@ class DataStore:
     def update_position(self, symbol: str, quantity: float, entry_price: float,
                         stop_loss: float = 0.0, closed_quantity: float = None,
                         close_count: int = None, pnl: float = None,
+                        total_fee: float = None,
                         partial_tp_triggered: str = None):
-        """更新持仓的数量、入场价和止损价（用于加仓/减仓/部分平仓场景）。"""
+        """更新持仓的数量、入场价和止损价（用于加仓/减仓/部分平仓场景）。
+
+        total_fee 为累加值：传入时执行 total_fee = total_fee + %s。
+        """
         with self._get_conn().cursor() as cur:
             sets = ["quantity = %s", "entry_price = %s", "stop_loss = %s"]
             params: list = [quantity, entry_price, stop_loss]
@@ -587,6 +647,9 @@ class DataStore:
             if pnl is not None:
                 sets.append("pnl = %s")
                 params.append(pnl)
+            if total_fee is not None:
+                sets.append("total_fee = total_fee + %s")
+                params.append(total_fee)
             if partial_tp_triggered is not None:
                 sets.append("partial_tp_triggered = %s")
                 params.append(partial_tp_triggered)
@@ -599,16 +662,27 @@ class DataStore:
             )
 
     def close_position(self, position_id: int, exit_price: float,
-                       closed_quantity: float, pnl: float, close_count: int):
-        """全平记录。更新 quantity=0, exit_price, exit_time, 累加 pnl, 设 status='closed'。"""
+                       closed_quantity: float, pnl: float, close_count: int,
+                       total_fee: float = None):
+        """全平记录。更新 quantity=0, exit_price, exit_time, 累加 pnl 和 total_fee, 设 status='closed'。"""
         with self._get_conn().cursor() as cur:
-            cur.execute(
-                """UPDATE positions
-                   SET exit_price = %s, exit_time = NOW(), quantity = 0,
-                       closed_quantity = %s, pnl = %s, close_count = %s, status = 'closed'
-                   WHERE id = %s""",
-                (exit_price, closed_quantity, pnl, close_count, position_id),
-            )
+            if total_fee is not None:
+                cur.execute(
+                    """UPDATE positions
+                       SET exit_price = %s, exit_time = NOW(), quantity = 0,
+                           closed_quantity = %s, pnl = %s, close_count = %s,
+                           total_fee = total_fee + %s, status = 'closed'
+                       WHERE id = %s""",
+                    (exit_price, closed_quantity, pnl, close_count, total_fee, position_id),
+                )
+            else:
+                cur.execute(
+                    """UPDATE positions
+                       SET exit_price = %s, exit_time = NOW(), quantity = 0,
+                           closed_quantity = %s, pnl = %s, close_count = %s, status = 'closed'
+                       WHERE id = %s""",
+                    (exit_price, closed_quantity, pnl, close_count, position_id),
+                )
 
     def get_open_positions(self) -> list[PositionRecord]:
         """查询所有当前持仓。"""
@@ -692,11 +766,12 @@ class DataStore:
             cur.execute(
                 """INSERT INTO position_entries
                        (position_id, seq, orig_qty, remaining_qty, entry_price,
-                        signal_id, status)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        entry_fee, order_id, signal_id, status)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
                 (entry.position_id, entry.seq, entry.orig_qty, entry.remaining_qty,
-                 entry.entry_price, entry.signal_id, entry.status),
+                 entry.entry_price, entry.entry_fee, entry.order_id,
+                 entry.signal_id, entry.status),
             )
             return cur.fetchone()[0]
 
@@ -715,7 +790,7 @@ class DataStore:
         with self._get_conn().cursor() as cur:
             cur.execute(
                 """SELECT id, position_id, seq, orig_qty, remaining_qty,
-                          entry_price, signal_id, status
+                          entry_price, entry_fee, order_id, signal_id, status
                    FROM position_entries
                    WHERE position_id = %s AND status = 'open'
                    ORDER BY seq ASC""",
@@ -726,7 +801,8 @@ class DataStore:
             EntryRecord(
                 id=r[0], position_id=r[1], seq=r[2],
                 orig_qty=float(r[3]), remaining_qty=float(r[4]),
-                entry_price=float(r[5]), signal_id=r[6], status=r[7],
+                entry_price=float(r[5]), entry_fee=float(r[6]),
+                order_id=r[7], signal_id=r[8], status=r[9],
             )
             for r in rows
         ]
@@ -739,12 +815,12 @@ class DataStore:
             cur.execute(
                 """INSERT INTO position_entry_closures
                        (entry_id, close_qty, entry_price, exit_price,
-                        pnl, fee, reason, signal_id)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        pnl, fee, reason, order_id, signal_id)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
                 (closure.entry_id, closure.close_qty, closure.entry_price,
                  closure.exit_price, closure.pnl, closure.fee,
-                 closure.reason, closure.signal_id),
+                 closure.reason, closure.order_id, closure.signal_id),
             )
             return cur.fetchone()[0]
 
@@ -759,6 +835,7 @@ class DataStore:
                 s.price AS signal_price,
                 s.timestamp AS signal_time,
                 pe.entry_price,
+                pe.entry_fee,
                 SUM(ec.close_qty) AS total_closed_qty,
                 SUM(ec.pnl) AS total_attributed_pnl,
                 SUM(ec.fee) AS total_fee
@@ -766,7 +843,7 @@ class DataStore:
             JOIN signals s ON pe.signal_id = s.id
             JOIN position_entry_closures ec ON ec.entry_id = pe.id
             {where_clause}
-            GROUP BY s.id, s.signal_type, s.price, s.timestamp, pe.entry_price
+            GROUP BY s.id, s.signal_type, s.price, s.timestamp, pe.entry_price, pe.entry_fee
             ORDER BY s.timestamp
         """
         if signal_id is not None:
@@ -791,6 +868,8 @@ class DataStore:
                 pe.seq,
                 pe.orig_qty,
                 pe.entry_price,
+                pe.entry_fee,
+                pe.order_id AS entry_order_id,
                 pe.signal_id,
                 pe.remaining_qty,
                 pe.status AS entry_status,
@@ -802,7 +881,8 @@ class DataStore:
             LEFT JOIN position_entry_closures ec ON ec.entry_id = pe.id
             {where_clause}
             GROUP BY p.id, p.symbol, p.side, pe.id, pe.seq,
-                     pe.orig_qty, pe.entry_price, pe.signal_id,
+                     pe.orig_qty, pe.entry_price, pe.entry_fee,
+                     pe.order_id, pe.signal_id,
                      pe.remaining_qty, pe.status
             ORDER BY p.id, pe.seq
         """
@@ -828,6 +908,7 @@ class DataStore:
                     s.price AS signal_price,
                     s.timestamp AS signal_time,
                     pe.entry_price,
+                    pe.entry_fee,
                     SUM(ec.close_qty) AS total_closed_qty,
                     SUM(ec.pnl) AS total_attributed_pnl,
                     SUM(ec.fee) AS total_fee,
@@ -838,7 +919,7 @@ class DataStore:
                 JOIN position_entry_closures ec ON ec.entry_id = pe.id
                 WHERE ec.close_time >= %s AND ec.close_time <= %s
                 GROUP BY s.id, s.signal_type, s.symbol, s.price,
-                         s.timestamp, pe.entry_price
+                         s.timestamp, pe.entry_price, pe.entry_fee
                 ORDER BY s.timestamp""",
                 (start_time, end_time),
             )

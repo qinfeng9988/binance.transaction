@@ -432,16 +432,6 @@ class Engine:
             signal_id=signal_id,
         )
 
-        if order and signal_id is not None:
-            # 回填 orders 表的 signal_id（place_order 时未知）
-            from .core.data_store import OrderRecord
-            # 通过 order_id 更新 signal_id
-            with self.data_store._get_conn().cursor() as cur:
-                cur.execute(
-                    "UPDATE orders SET signal_id = %s WHERE order_id = %s",
-                    (signal_id, order.order_id),
-                )
-
         trade_logger = logging.getLogger("trades")
         trade_logger.info(
             "[模拟成交] %s %s 价格=%.2f 数量=%.4f 杠杆=%dx 订单=%s",
