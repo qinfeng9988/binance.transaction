@@ -70,7 +70,9 @@
       "Bash(/Users/qinj057/develop/binance.transaction-ui/.venv/bin/pip install *)",
       "Bash(/Users/qinj057/develop/binance.transaction-ui/.venv/bin/python3.13 *)",
       "Bash(.venv/bin/python3.13 *)",
-      "Bash(/Users/qinj057/develop/binance.transaction-ui/.venv/bin/pytest tests/test_trade_attribution.py -v)"
+      "Bash(/Users/qinj057/develop/binance.transaction-ui/.venv/bin/pytest tests/test_trade_attribution.py -v)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
     ]
   }
 }
