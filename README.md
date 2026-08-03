@@ -333,7 +333,7 @@ python -m quant_trader.reset --drop orders_20260522_201919
 ```
 
 **保留的数据**：K 线历史（klines 表）不会被删除，策略重新跑时直接复用。
-**被清空的数据**：订单记录（orders）、信号记录（signals）、持仓记录（positions）。
+**被清空的数据**：订单记录（orders）、信号记录（signals）、持仓记录（positions）、入场明细（position_entries）、出场明细（position_entry_closures）。
 
 ### 查看日志
 
@@ -403,7 +403,7 @@ WHERE status = 'open';
 
 ```sql
 SELECT symbol, side, entry_price, exit_price, quantity,
-       leverage, pnl, entry_time, exit_time, status
+       leverage, pnl, total_fee, entry_time, exit_time, status
 FROM positions
 WHERE status = 'closed'
 ORDER BY exit_time DESC;
@@ -412,11 +412,26 @@ ORDER BY exit_time DESC;
 ### 订单流水
 
 ```sql
-SELECT id, symbol, side, price, quantity, leverage,
-       mode, order_id, timestamp
+SELECT id, symbol, price, quantity, leverage,
+       mode, order_id, fee, timestamp
 FROM orders
 ORDER BY timestamp DESC
 LIMIT 50;
+```
+
+### 归因明细
+
+```sql
+-- 按持仓查看归因
+SELECT pe.seq, pe.entry_price, pe.entry_fee, pe.order_id AS entry_order_id,
+       SUM(ec.close_qty) AS total_closed_qty,
+       SUM(ec.pnl) AS total_attributed_pnl,
+       SUM(ec.fee) AS total_close_fee
+FROM position_entries pe
+LEFT JOIN position_entry_closures ec ON ec.entry_id = pe.id
+WHERE pe.position_id = %s
+GROUP BY pe.id, pe.seq, pe.entry_price, pe.entry_fee, pe.order_id
+ORDER BY pe.seq;
 ```
 
 ### 信号记录
@@ -608,7 +623,7 @@ binance:
 | 模块 | 说明 |
 |------|------|
 | `core/config_loader.py` | YAML 配置加载 + watchdog 热重载 |
-| `core/data_store.py` | PostgreSQL 数据层（K 线/信号/订单/持仓） |
+| `core/data_store.py` | PostgreSQL 数据层（K 线/信号/订单/持仓/归因明细） |
 | `core/logger.py` | 日志系统（终端 + 文件 + signals.log + trades.log） |
 | `exchange/binance_adapter.py` | Binance API 封装（ccxt 同步 + 线程池） |
 | `exchange/paper_trading.py` | 模拟交易引擎（余额/下单/持仓/盈亏/数据库恢复） |
@@ -696,7 +711,22 @@ ps aux | grep main.py
 |------|------|
 | `klines` | K 线行情数据（OHLCV） |
 | `signals` | 策略交易信号 |
-| `orders` | 交易订单流水 |
-| `positions` | 持仓记录（含历史） |
+| `orders` | 交易订单流水（成交流水，归因走 entries/closures 的 order_id 关联） |
+| `positions` | 持仓记录（含历史），通过 entries/closures 关联订单 |
+| `position_entries` | 入场明细（每笔开仓/加仓一条，含 entry_fee 和 order_id） |
+| `position_entry_closures` | 出场明细（按 FIFO 生成，归因 PNL 已扣平仓手续费和入场手续费分摊） |
+
+### 表关系
+
+```
+orders ←── order_id ──→ position_entries  ←── position_id ──→ positions
+                       position_entry_closures ←── position_id ──→ positions
+```
+
+- **orders**：成交流水，不记录 position_id/order_type/signal_id（已删除冗余字段）
+- **position_entries**：通过 order_id 关联订单，通过 signal_id 关联信号，entry_fee 记录入场手续费
+- **position_entry_closures**：通过 order_id 关联平仓订单，归因 PNL 公式：
+  `(exit_price - entry_price) × close_qty × direction - fee - entry_fee × (close_qty / orig_qty)`
+- **positions**：total_fee 预聚合 = SUM(entries.entry_fee) + SUM(closures.fee)
 
 详细的字段说明和注释可在 DataGrip 中查看，所有字段已添加中文注释。
