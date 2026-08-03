@@ -11,11 +11,17 @@ quant_trader/
 │   └── manual_config.yaml         # 手动交易辅助配置（S/R 查询参数）
 ├── core/
 │   ├── config_loader.py           # 配置加载 + 文件热重载
-│   ├── data_store.py              # PostgreSQL 数据层
-│   └── query_server.py            # HTTP 查询服务（状态 + S/R 查询）
+│   ├── data_store.py              # PostgreSQL 数据层（K 线/信号/订单/持仓/归因明细）
+│   ├── kline_manager.py           # K 线数据管理（增量拉取 + 事件订阅）
+│   ├── logger.py                  # 日志系统（终端 + 文件 + signals.log + trades.log）
+│   ├── query_server.py            # HTTP 查询服务（状态 + S/R 查询 + 归因）
+│   ├── serialization.py           # 状态序列化（持仓/账户/信号摘要）
+│   └── status_server.py           # 状态 HTTP 服务
 ├── exchange/
 │   ├── binance_adapter.py         # Binance API 封装（ccxt）
-│   └── paper_trading.py           # 模拟交易引擎
+│   └── paper_trading.py           # 模拟交易引擎（余额/下单/持仓/归因/数据库恢复）
+├── models/
+│   └── __init__.py                # 数据模型定义（Signal 等）
 ├── strategies/
 │   ├── base.py                    # 策略基类
 │   ├── s_r_levels.py              # 支撑/压力位策略（BTC/ETH/SOL）
@@ -25,9 +31,12 @@ quant_trader/
 │   └── support_resistance.py      # 支撑/压力识别 + S/R 纯分析函数
 ├── risk/
 │   └── manager.py                 # 风控检查（杠杆/止损/仓位）
+├── backtest/
+│   └── runner.py                  # 回测引擎（backtesting.py 封装）
 ├── main.py                        # 主程序入口
 ├── status.py                      # 查看账户状态
 ├── query_sr.py                    # 手动交易 S/R 查询工具
+├── fix_positions.py               # 修复 positions 表数据（从 orders 重算）
 ├── reset.py                       # 数据归档与重置
 ├── requirements.txt               # Python 依赖
 └── logs/                          # 运行日志
@@ -624,9 +633,14 @@ binance:
 |------|------|
 | `core/config_loader.py` | YAML 配置加载 + watchdog 热重载 |
 | `core/data_store.py` | PostgreSQL 数据层（K 线/信号/订单/持仓/归因明细） |
+| `core/kline_manager.py` | K 线数据管理（增量拉取 + 事件订阅/发布） |
 | `core/logger.py` | 日志系统（终端 + 文件 + signals.log + trades.log） |
+| `core/query_server.py` | HTTP 查询服务（状态 + S/R 查询 + 归因查询） |
+| `core/serialization.py` | 状态序列化（持仓/账户/信号摘要） |
+| `core/status_server.py` | 状态 HTTP 服务 |
 | `exchange/binance_adapter.py` | Binance API 封装（ccxt 同步 + 线程池） |
-| `exchange/paper_trading.py` | 模拟交易引擎（余额/下单/持仓/盈亏/数据库恢复） |
+| `exchange/paper_trading.py` | 模拟交易引擎（余额/下单/持仓/归因/数据库恢复） |
+| `models/__init__.py` | 数据模型定义（Signal 等） |
 | `strategies/base.py` | 策略基类 |
 | `strategies/s_r_levels.py` | 支撑/压力位策略（BTC/ETH/SOL） |
 | `strategies/bollinger_bands.py` | 双均线趋势策略（PAXG） |
@@ -634,7 +648,7 @@ binance:
 | `technical/support_resistance.py` | 支撑/压力识别 + 成交量分布 |
 | `risk/manager.py` | 风控管理器（止损/杠杆/仓位/日亏损） |
 | `backtest/runner.py` | 回测引擎（backtesting.py 封装） |
-| `scripts/backtest_range.py` | 指定日期范围回测脚本 |
+| `fix_positions.py` | 修复 positions 表数据（从 orders 重算持仓） |
 
 ---
 
