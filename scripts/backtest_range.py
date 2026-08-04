@@ -17,8 +17,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from quant_trader.core.config_loader import ConfigLoader
-from quant_trader.core.data_store import DataStore
-from quant_trader.main import PARENT_TIMEFRAME
+from quant_trader.core.data_store import DataStore, KlineRecord
+from quant_trader.exchange.binance_adapter import BinanceAdapter
+from quant_trader.main import PARENT_TIMEFRAME, TIMEFRAME_SECONDS
 from quant_trader.strategies.s_r_levels import SupportResistanceStrategy
 from quant_trader.strategies.bollinger_bands import BollingerBandsStrategy
 from quant_trader.risk.manager import RiskManager
@@ -293,6 +294,93 @@ class BacktestEngine:
         }
 
 
+async def _fetch_klines_from_api(adapter: BinanceAdapter, ds: DataStore,
+                                  symbol: str, timeframe: str,
+                                  start: datetime, end: datetime):
+    """从交易所 API 分页拉取 K 线数据并写入数据库（幂等）。"""
+    since = int(start.timestamp() * 1000)
+    end_ms = int(end.timestamp() * 1000)
+    total_fetched = 0
+
+    while True:
+        batch = await adapter.fetch_ohlcv(symbol, timeframe, limit=1000, since=since)
+        if not batch:
+            break
+
+        records = [
+            KlineRecord(
+                symbol=symbol,
+                timeframe=timeframe,
+                timestamp=datetime.fromtimestamp(k["timestamp"] / 1000, tz=timezone.utc),
+                open=k["open"], high=k["high"], low=k["low"],
+                close=k["close"], volume=k["volume"],
+            )
+            for k in batch
+        ]
+        ds.insert_klines(records)
+        total_fetched += len(batch)
+
+        last_ts = batch[-1]["timestamp"]
+        if last_ts >= end_ms or len(batch) < 1000:
+            break
+        since = last_ts + 1
+
+    logger.info("API 拉取 %s %s: 共 %d 根", symbol, timeframe, total_fetched)
+
+
+async def _ensure_klines_complete(symbol: str, timeframe: str,
+                                   start: datetime, end: datetime,
+                                   ds: DataStore, adapter: BinanceAdapter,
+                                   tolerance: float = 0.001,
+                                   max_retries: int = 5):
+    """验证 K 线数据完整性，不完整时从 API 补全。
+
+    tolerance: 允许的缺失率上限（当前周期 0.001=0.1%，parent 周期 0.005=0.5%）
+    max_retries: API 补全最大重试次数
+    """
+    interval = TIMEFRAME_SECONDS.get(timeframe, 300)
+    expected = int((end - start).total_seconds() / interval) + 1
+    actual = ds.count_klines(symbol, timeframe, start, end)
+    missing_rate = (expected - actual) / expected if expected > 0 else 0
+
+    if missing_rate <= tolerance:
+        logger.info("K线数据完整 %s %s: %d/%d (缺失率 %.2f%%)",
+                    symbol, timeframe, actual, expected, missing_rate * 100)
+        return
+
+    logger.warning("K线数据不完整 %s %s: expected=%d, actual=%d, 缺失率 %.2f%%",
+                   symbol, timeframe, expected, actual, missing_rate * 100)
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            await _fetch_klines_from_api(adapter, ds, symbol, timeframe, start, end)
+        except Exception as e:
+            logger.warning("API 补全失败 (第 %d/%d 次) %s %s: %s",
+                           attempt, max_retries, symbol, timeframe, e)
+            if attempt == max_retries:
+                raise RuntimeError(
+                    f"K线数据补全失败 {symbol} {timeframe}: "
+                    f"expected={expected}, actual={actual}, 缺失率={missing_rate*100:.2f}%"
+                ) from e
+            continue
+
+        new_actual = ds.count_klines(symbol, timeframe, start, end)
+        new_missing = (expected - new_actual) / expected if expected > 0 else 0
+        if new_missing <= tolerance:
+            logger.info("补全成功 %s %s: %d/%d (缺失率 %.2f%%)",
+                        symbol, timeframe, new_actual, expected, new_missing * 100)
+            return
+
+        logger.warning("补全后仍不完整 %s %s: %d/%d (缺失率 %.2f%%), 重试 %d/%d",
+                       symbol, timeframe, new_actual, expected, new_missing * 100,
+                       attempt + 1, max_retries)
+
+    raise RuntimeError(
+        f"K线数据补全失败 {symbol} {timeframe}: "
+        f"expected={expected}, 重试 {max_retries} 次后仍不完整"
+    )
+
+
 def _align_parent_klines(klines_chrono: list[dict], parent_klines_chrono: list[dict],
                          parent_lookback: int | None = None) -> list[list[dict] | None]:
     parent_idx = 0
@@ -312,7 +400,9 @@ def _align_parent_klines(klines_chrono: list[dict], parent_klines_chrono: list[d
     return parent_windows
 
 
-def run_backtest(symbol: str, timeframe: str, start: datetime, end: datetime, params: dict, strategy_name: str = "default"):
+async def run_backtest(symbol: str, timeframe: str, start: datetime, end: datetime,
+                       params: dict, strategy_name: str = "default",
+                       adapter: BinanceAdapter | None = None):
     config = ConfigLoader()
     exchange_cfg = config.load_static()
     ds = DataStore(host=exchange_cfg.db_host, port=exchange_cfg.db_port,
@@ -320,64 +410,24 @@ def run_backtest(symbol: str, timeframe: str, start: datetime, end: datetime, pa
                    password=exchange_cfg.db_password)
     ds.connect()
 
-    # 获取 K 线数据（需要扩展 get_klines 支持时间范围，这里直接查询）
-    import psycopg2
-    conn = psycopg2.connect(host=exchange_cfg.db_host, port=exchange_cfg.db_port,
-                            dbname=exchange_cfg.db_name, user=exchange_cfg.db_user,
-                            password=exchange_cfg.db_password)
-    cur = conn.cursor()
-    cur.execute(
-        """SELECT timestamp, open, high, low, close, volume
-           FROM klines WHERE symbol = %s AND timeframe = %s
-             AND timestamp >= %s AND timestamp <= %s
-           ORDER BY timestamp ASC""",
-        (symbol, timeframe, start, end),
-    )
-    klines = [{"timestamp": r[0], "open": float(r[1]), "high": float(r[2]),
-               "low": float(r[3]), "close": float(r[4]), "volume": float(r[5])}
-              for r in cur.fetchall()]
+    # 验证 + 补全当前周期 K 线
+    if adapter:
+        await _ensure_klines_complete(symbol, timeframe, start, end, ds, adapter, tolerance=0.001)
+    klines = ds.get_klines_range(symbol, timeframe, start, end)
 
-    # ---- parent / grandparent 数据需要向前扩展预热期 ----
-    # detect_trend 需要至少 50 根 K 线（EMA50），但 EMA 计算需要更长的历史才稳定。
-    # _align_parent_klines 默认取 parent_lookback 根（默认 70），因此预热期至少覆盖 70 根 parent K 线。
+    # parent 周期：需要 warmup 扩展
     _CANDLES_PER_DAY = {"5m": 288, "1h": 24, "4h": 6, "1d": 1}
-    _PARENT_WARMUP_CANDLES = 60  # 与 backtest.py 保持一致，再额外加 5 天缓冲
+    _WARMUP_CANDLES = 60
 
     parent_tf = PARENT_TIMEFRAME.get(timeframe)
     parent_klines = []
     if parent_tf:
         parent_cpd = _CANDLES_PER_DAY.get(parent_tf, 24)
-        parent_warmup_days = int(_PARENT_WARMUP_CANDLES / parent_cpd) + 5
+        parent_warmup_days = int(_WARMUP_CANDLES / parent_cpd) + 5
         parent_start = start - timedelta(days=parent_warmup_days)
-        cur.execute(
-            """SELECT timestamp, open, high, low, close, volume
-               FROM klines WHERE symbol = %s AND timeframe = %s
-                 AND timestamp >= %s AND timestamp <= %s
-               ORDER BY timestamp ASC""",
-            (symbol, parent_tf, parent_start, end),
-        )
-        parent_klines = [{"timestamp": r[0], "open": float(r[1]), "high": float(r[2]),
-                          "low": float(r[3]), "close": float(r[4]), "volume": float(r[5])}
-                         for r in cur.fetchall()]
-
-    grandparent_tf = PARENT_TIMEFRAME.get(parent_tf) if parent_tf else None
-    grandparent_klines = []
-    if grandparent_tf:
-        gp_cpd = _CANDLES_PER_DAY.get(grandparent_tf, 24)
-        gp_warmup_days = int(_PARENT_WARMUP_CANDLES / gp_cpd) + 5
-        gp_start = start - timedelta(days=gp_warmup_days)
-        cur.execute(
-            """SELECT timestamp, open, high, low, close, volume
-               FROM klines WHERE symbol = %s AND timeframe = %s
-                 AND timestamp >= %s AND timestamp <= %s
-               ORDER BY timestamp ASC""",
-            (symbol, grandparent_tf, gp_start, end),
-        )
-        grandparent_klines = [{"timestamp": r[0], "open": float(r[1]), "high": float(r[2]),
-                               "low": float(r[3]), "close": float(r[4]), "volume": float(r[5])}
-                              for r in cur.fetchall()]
-    cur.close()
-    conn.close()
+        if adapter:
+            await _ensure_klines_complete(symbol, parent_tf, parent_start, end, ds, adapter, tolerance=0.005)
+        parent_klines = ds.get_klines_range(symbol, parent_tf, parent_start, end)
 
     if not klines:
         ds.close()
@@ -398,7 +448,6 @@ def run_backtest(symbol: str, timeframe: str, start: datetime, end: datetime, pa
 
     parent_lookback = params.get("parent_lookback", None)
     parent_windows = _align_parent_klines(klines, parent_klines, parent_lookback=parent_lookback)
-    grandparent_windows = _align_parent_klines(klines, grandparent_klines, parent_lookback=parent_lookback)
 
     # 加载 funding rate 缓存
     funding_records = _load_funding_rates(symbol)
@@ -414,13 +463,12 @@ def run_backtest(symbol: str, timeframe: str, start: datetime, end: datetime, pa
         # 窗口转为 新→旧（与策略期望一致）
         window = list(reversed(klines[i - window_size + 1:i + 1]))
         parent_window = parent_windows[i] if i < len(parent_windows) else None
-        grandparent_window = grandparent_windows[i] if i < len(grandparent_windows) else None
         ts_epoch = kline["timestamp"].timestamp()
         # 匹配当前 K 线时间对应的 funding rate
         funding_rate = None
         if funding_records:
             funding_rate = _match_funding_rate(int(ts_epoch * 1000), funding_records)
-        signals = strategy.on_bar(symbol, timeframe, window, engine.positions.values(), parent_klines=parent_window, grandparent_klines=grandparent_window, funding_rate=funding_rate)
+        signals = strategy.on_bar(symbol, timeframe, window, engine.positions.values(), parent_klines=parent_window, grandparent_klines=None, funding_rate=funding_rate)
         price_map = {symbol: kline["close"]}
         engine._record_equity(kline["timestamp"], price_map)
         for sig in signals:
@@ -509,24 +557,30 @@ def main():
                 strategy_name = s.name
                 break
     else:
-        # 优先选择启用的策略
+        # 只选择启用的策略
         for s in config.strategies.strategies:
             if args.symbol in s.symbols and args.timeframe in s.timeframes and s.enabled:
                 params = s.params
                 strategy_name = s.name
                 break
-        # 如果没有启用的策略，选择第一个匹配的
-        if not params:
-            for s in config.strategies.strategies:
-                if args.symbol in s.symbols and args.timeframe in s.timeframes:
-                    params = s.params
-                    strategy_name = s.name
-                    break
     if not params:
-        logger.error("未找到 %s %s 的策略配置", args.symbol, args.timeframe)
+        logger.error("未找到 %s %s 的启用策略，请使用 --strategy 指定或在配置中启用策略",
+                     args.symbol, args.timeframe)
         return
 
-    engine = run_backtest(args.symbol, args.timeframe, start, end, params, strategy_name=strategy_name)
+    # 创建交易所适配器（用于 K 线数据验证补全）
+    exchange_cfg = config.load_static()
+    adapter = BinanceAdapter(
+        api_key=exchange_cfg.api_key,
+        api_secret=exchange_cfg.api_secret,
+        sandbox=exchange_cfg.sandbox,
+        default_type=exchange_cfg.default_type,
+        proxy=exchange_cfg.proxy or None,
+    )
+    adapter.connect()
+
+    engine = asyncio.run(run_backtest(args.symbol, args.timeframe, start, end, params,
+                                       strategy_name=strategy_name, adapter=adapter))
     if not engine:
         return
 

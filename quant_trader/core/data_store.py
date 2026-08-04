@@ -564,6 +564,37 @@ class DataStore:
             for r in rows
         ]
 
+    def get_klines_range(self, symbol: str, timeframe: str,
+                         start: datetime, end: datetime) -> list[dict]:
+        """按时间范围查询 K 线数据，返回旧→新顺序。"""
+        with self._get_conn().cursor() as cur:
+            cur.execute(
+                """SELECT timestamp, open, high, low, close, volume
+                   FROM klines
+                   WHERE symbol = %s AND timeframe = %s
+                     AND timestamp >= %s AND timestamp <= %s
+                   ORDER BY timestamp ASC""",
+                (symbol, timeframe, start, end),
+            )
+            rows = cur.fetchall()
+        return [
+            {"timestamp": r[0], "open": float(r[1]), "high": float(r[2]),
+             "low": float(r[3]), "close": float(r[4]), "volume": float(r[5])}
+            for r in rows
+        ]
+
+    def count_klines(self, symbol: str, timeframe: str,
+                     start: datetime, end: datetime) -> int:
+        """统计时间范围内的 K 线数量。"""
+        with self._get_conn().cursor() as cur:
+            cur.execute(
+                """SELECT COUNT(*) FROM klines
+                   WHERE symbol = %s AND timeframe = %s
+                     AND timestamp >= %s AND timestamp <= %s""",
+                (symbol, timeframe, start, end),
+            )
+            return cur.fetchone()[0]
+
     def get_latest_timestamp(self, symbol: str, timeframe: str) -> datetime | None:
         """获取某币种某周期的最新时间戳，用于增量拉取。"""
         with self._get_conn().cursor() as cur:
