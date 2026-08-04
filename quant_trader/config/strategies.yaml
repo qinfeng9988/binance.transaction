@@ -182,7 +182,6 @@ strategies:
     trend_lookback: 200
     parent_lookback: 150
     min_touches: 3.5
-    stop_loss_pct: 1.2
     leverage: 5
     entry_threshold_pct: 0.5
     secondary_min_touches: 3
@@ -370,10 +369,10 @@ strategies:
     poc_far_threshold_pct: 0.007
     vah_val_near_bonus: 0.5
     vah_val_inner_bonus: 0.3
-- name: support_resistance_paxg
-  enabled: false
+- name: support_resistance_xau
+  enabled: true
   symbols:
-  - PAXG/USDT
+  - XAU/USDT
   timeframes:
   - 5m
   - 1h
@@ -437,11 +436,12 @@ strategies:
     poc_far_threshold_pct: 0.007
     vah_val_near_bonus: 0.5
     vah_val_inner_bonus: 0.3
-- name: bollinger_bands_paxg
-  enabled: true
+- name: bollinger_bands_xau
+  enabled: false
   symbols:
-  - PAXG/USDT
+  - XAU/USDT
   timeframes:
+  - 15m
   - 1h
   params:
     # ---- 双均线参数（更长周期）----
