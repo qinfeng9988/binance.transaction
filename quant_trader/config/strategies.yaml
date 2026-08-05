@@ -100,8 +100,8 @@ strategies:
   symbols:
   - ETH/USDT
   timeframes:
+  - 15m 
   - 1h
-  - 4h
   params:
     lookback: 100
     sr_lookback: 140
@@ -370,13 +370,13 @@ strategies:
     vah_val_near_bonus: 0.5
     vah_val_inner_bonus: 0.3
 - name: support_resistance_xau
-  enabled: true
+  enabled: false
   symbols:
   - XAU/USDT
   timeframes:
   - 5m
+  - 15m
   - 1h
-  - 4h
   params:
     lookback: 100
     min_touches: 4
@@ -437,10 +437,11 @@ strategies:
     vah_val_near_bonus: 0.5
     vah_val_inner_bonus: 0.3
 - name: bollinger_bands_xau
-  enabled: false
+  enabled: true
   symbols:
   - XAU/USDT
   timeframes:
+  - 5m
   - 15m
   - 1h
   params:
