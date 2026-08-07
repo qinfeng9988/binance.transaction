@@ -73,7 +73,8 @@
       "Bash(/Users/qinj057/develop/binance.transaction-ui/.venv/bin/pytest tests/test_trade_attribution.py -v)",
       "Bash(git add *)",
       "Bash(git commit *)",
-      "Bash(.venv/bin/python3 *)"
+      "Bash(.venv/bin/python3 *)",
+      "Bash(awk '{print $4, $5}')"
     ]
   }
 }

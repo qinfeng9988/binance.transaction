@@ -7,7 +7,6 @@ strategies:
   timeframes:
   - 5m
   - 1h
-  - 4h
   params:
     lookback: 100
     min_touches: 5.3
@@ -280,7 +279,6 @@ strategies:
   timeframes:
   - 5m
   - 1h
-  - 4h
   params:
     lookback: 100
     min_touches: 4
