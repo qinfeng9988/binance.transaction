@@ -139,7 +139,10 @@ async def _query_handler(request: web.Request) -> web.Response:
     show_levels = manual_config.get("show_levels", 5)
 
     # 计算手动交易建议
-    current_price = analysis["current_price"]
+    # 优先用 kline_manager 的实时价格缓存（避免 K 线 cache 滞后）
+    current_price = engine.kline_manager.get_realtime_price(symbol)
+    if current_price is None:
+        current_price = analysis["current_price"]  # 回退到 K 线 cache
     atr_val = analysis["atr"]
 
     # 计算建议止损位
