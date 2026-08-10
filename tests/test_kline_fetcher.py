@@ -5,7 +5,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from quant_trader.core.kline_fetcher import BaseKlineFetcher, RESTKlineFetcher, merge_kline_update
+from quant_trader.core.kline_fetcher import (
+    BaseKlineFetcher,
+    RESTKlineFetcher,
+    WebSocketKlineFetcher,
+    merge_kline_update,
+)
 
 
 def _kline(ts, close):
@@ -177,4 +182,104 @@ def test_rest_fetcher_unsubscribe_removes_subscription():
     assert ("ETH/USDT", "5m") not in fetcher._symbol_timeframes
 
     asyncio.run(fetcher.stop())
+
+
+# ---------- WebSocketKlineFetcher ----------
+
+def test_ws_fetcher_initial_state():
+    """WebSocketKlineFetcher 在 start 前 is_running 为 False。"""
+    exchange = _make_mock_exchange()
+    fetcher = WebSocketKlineFetcher(
+        rest_exchange=exchange,
+        on_kline=lambda *_: None,
+        on_fallback_to_rest=lambda: None,
+        timeframes_seconds={"5m": 300},
+        proxy=None,
+    )
+    assert fetcher.is_running is False
+
+
+def test_ws_fetcher_bootstrap_calls_rest_and_notifies():
+    """start 时先通过 REST 拉取历史 K 线填充缓存。"""
+    exchange = _make_mock_exchange()
+    received = []
+
+    fetcher = WebSocketKlineFetcher(
+        rest_exchange=exchange,
+        on_kline=lambda sym, tf, klines, event: received.append((sym, tf, event)),
+        on_fallback_to_rest=lambda: None,
+        timeframes_seconds={"5m": 300},
+        proxy=None,
+    )
+
+    # 直接测试 bootstrap 方法，不启动 ws_loop
+    asyncio.run(fetcher._bootstrap({("BTC/USDT", "5m")}))
+
+    exchange.fetch_ohlcv.assert_called_once_with("BTC/USDT", "5m", limit=151)
+    assert received == [("BTC/USDT", "5m", "closed")]
+
+
+def test_ws_fetcher_subscribe_updates_symbol_set():
+    """subscribe 添加新 (symbol, tf) 到订阅集合。"""
+    exchange = _make_mock_exchange()
+    fetcher = WebSocketKlineFetcher(
+        rest_exchange=exchange,
+        on_kline=lambda *_: None,
+        on_fallback_to_rest=lambda: None,
+        timeframes_seconds={"5m": 300, "1h": 3600},
+        proxy=None,
+    )
+
+    asyncio.run(fetcher.subscribe({("ETH/USDT", "5m")}))
+    assert ("ETH/USDT", "5m") in fetcher._symbol_timeframes
+
+
+def test_ws_fetcher_unsubscribe_removes_from_symbol_set():
+    """unsubscribe 从订阅集合移除。"""
+    exchange = _make_mock_exchange()
+    fetcher = WebSocketKlineFetcher(
+        rest_exchange=exchange,
+        on_kline=lambda *_: None,
+        on_fallback_to_rest=lambda: None,
+        timeframes_seconds={"5m": 300},
+        proxy=None,
+    )
+    fetcher._symbol_timeframes = {("BTC/USDT", "5m"), ("ETH/USDT", "5m")}
+
+    asyncio.run(fetcher.unsubscribe({("ETH/USDT", "5m")}))
+    assert ("ETH/USDT", "5m") not in fetcher._symbol_timeframes
+    assert ("BTC/USDT", "5m") in fetcher._symbol_timeframes
+
+
+def test_ws_fetcher_merge_incoming_message():
+    """收到 WebSocket 推送后，正确合并到缓存并触发回调。"""
+    exchange = _make_mock_exchange()
+    received_events = []
+
+    fetcher = WebSocketKlineFetcher(
+        rest_exchange=exchange,
+        on_kline=lambda sym, tf, klines, event: received_events.append((event, klines[0]["close"])),
+        on_fallback_to_rest=lambda: None,
+        timeframes_seconds={"5m": 300},
+        proxy=None,
+    )
+
+    # 模拟已有缓存
+    fetcher._kline_caches[("BTC/USDT", "5m")] = [
+        {"timestamp": 1000, "open": 100, "high": 101, "low": 99, "close": 100.0, "volume": 1.0},
+    ]
+
+    # 同时间戳更新
+    fetcher._handle_ws_message(
+        "BTC/USDT", "5m",
+        [[1000, 100, 101, 99, 100.5, 1.0]],
+    )
+    assert received_events[-1] == ("update", 100.5)
+
+    # 新时间戳 → closed
+    fetcher._handle_ws_message(
+        "BTC/USDT", "5m",
+        [[2000, 100, 101, 99, 101.0, 1.0]],
+    )
+    assert received_events[-1] == ("closed", 101.0)
 
