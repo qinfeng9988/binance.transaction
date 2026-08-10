@@ -52,3 +52,35 @@ class BaseKlineFetcher(ABC):
         """触发 K 线更新回调。"""
         if self._on_kline is not None:
             self._on_kline(symbol, timeframe, klines, event)
+
+
+_MAX_KLINE_CACHE = 200
+
+
+def merge_kline_update(cached: list[dict], new_kline: dict) -> tuple[list[dict], str]:
+    """把单根新 K 线合并到缓存。
+
+    返回 (merged_list, event):
+        event="update": 新 K 线与缓存首根是同一根（时间戳相同），仅更新
+        event="closed": 新 K 线时间戳更大，意味着上一根已收盘，新根开始
+
+    缓存按时间戳降序排列（最新在前）。最大长度 _MAX_KLINE_CACHE，超出则截断尾部。
+    """
+    if not cached:
+        return [new_kline], "update"
+
+    new_ts = new_kline["timestamp"]
+    head_ts = cached[0]["timestamp"]
+
+    if new_ts == head_ts:
+        merged = [new_kline] + cached[1:]
+        return merged, "update"
+
+    if new_ts > head_ts:
+        merged = [new_kline] + cached
+        if len(merged) > _MAX_KLINE_CACHE:
+            merged = merged[:_MAX_KLINE_CACHE]
+        return merged, "closed"
+
+    # new_ts < head_ts: 历史/乱序数据，忽略
+    return cached, "update"
