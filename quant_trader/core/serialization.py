@@ -32,7 +32,7 @@ def serialize_position(pos):
 
 
 async def _fetch_realtime_price(exchange, symbol: str) -> float | None:
-    """获取币种实时价格（取 1m 最新收盘价）。"""
+    """获取币种实时价格（取 1m 最新收盘价，作为降级后备）。"""
     try:
         klines = await exchange.fetch_ohlcv(symbol, "1m", limit=1)
         if klines:
@@ -40,6 +40,14 @@ async def _fetch_realtime_price(exchange, symbol: str) -> float | None:
     except Exception:
         logger.warning("获取 %s 实时价格失败", symbol, exc_info=True)
     return None
+
+
+def _get_realtime_price(engine, symbol: str) -> float | None:
+    """从 kline_manager 缓存获取实时价格，无缓存时返回 None。"""
+    kline_manager = getattr(engine, "kline_manager", None)
+    if kline_manager is None:
+        return None
+    return kline_manager.get_realtime_price(symbol)
 
 
 async def serialize_status(engine, data_store):
@@ -55,23 +63,30 @@ async def serialize_status(engine, data_store):
     """
     paper = engine.paper_engine
 
-    # 持仓序列化：实时查询价格，重新计算未实现盈亏
+    # 持仓序列化：优先用 kline_manager 实时价格缓存，回退到 REST 请求
     positions = {}
     realtime_unrealized_pnl: dict[str, float] = {}
     for symbol, pos in paper.positions.items():
         pos_dict = serialize_position(pos)
         current_price = pos.current_price
 
-        if engine.exchange:
+        # 优先用缓存（WebSocket/REST 推送更新）
+        cached_price = _get_realtime_price(engine, symbol)
+        if cached_price is not None:
+            realtime_price: float | None = cached_price
+        elif engine.exchange:
             realtime_price = await _fetch_realtime_price(engine.exchange, symbol)
-            if realtime_price is not None:
-                current_price = realtime_price
-                pos_dict["current_price"] = current_price
-                if pos.side == "buy":
-                    unrealized = (current_price - pos.entry_price) * pos.quantity
-                else:
-                    unrealized = (pos.entry_price - current_price) * pos.quantity
-                pos_dict["unrealized_pnl"] = unrealized
+        else:
+            realtime_price = None
+
+        if realtime_price is not None:
+            current_price = realtime_price
+            pos_dict["current_price"] = current_price
+            if pos.side == "buy":
+                unrealized = (current_price - pos.entry_price) * pos.quantity
+            else:
+                unrealized = (pos.entry_price - current_price) * pos.quantity
+            pos_dict["unrealized_pnl"] = unrealized
 
         positions[symbol] = pos_dict
         realtime_unrealized_pnl[symbol] = pos_dict.get("unrealized_pnl", 0.0)
