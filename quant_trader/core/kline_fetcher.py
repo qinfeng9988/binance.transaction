@@ -263,12 +263,18 @@ class WebSocketKlineFetcher(BaseKlineFetcher):
 
         config: dict = {
             "enableRateLimit": True,
-            "options": {"defaultType": "future"},
+            "options": {
+                "defaultType": "future",
+                "fetchMarkets": ["linear"],  # 只加载 U 本位合约，避免 dapi 超时
+            },
+            "timeout": 20000,
         }
         if self.proxy:
-            # ccxt.pro 使用 aiohttp，通过 wsProxy/wssProxy 配置代理
-            config["options"]["wsProxy"] = self.proxy
-            config["options"]["wssProxy"] = self.proxy
+            # ccxt.pro 顶层属性配置代理（注意 httpProxy 与 httpsProxy 不能共存）：
+            # - httpsProxy: REST 请求代理（load_markets 等走这里）
+            # - wssProxy: WebSocket 连接代理
+            config["httpsProxy"] = self.proxy
+            config["wssProxy"] = self.proxy
 
         self._ws = ccxt.pro.binance(config)
         await self._ws.load_markets()
