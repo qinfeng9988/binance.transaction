@@ -4,7 +4,6 @@ import asyncio
 import logging
 import random
 import time as _time
-from datetime import datetime, timezone
 from pathlib import Path
 
 from .core.config_loader import ConfigLoader
@@ -106,8 +105,11 @@ class Engine:
 
         # 初始化 K 线数据管理器
         self.kline_manager = KlineDataManager(
-            self.exchange, self.data_store,
+            exchange=self.exchange,
+            data_store=self.data_store,
+            timeframes_seconds=TIMEFRAME_SECONDS,
             buffer_seconds=exchange_cfg.kline_buffer_seconds,
+            proxy=exchange_cfg.proxy or None,
         )
 
         # 初始化状态 HTTP 服务
@@ -123,9 +125,20 @@ class Engine:
         logger.info("引擎初始化完成。模式: %s", self.config.strategies.mode)
 
     def _on_config_change(self, filename: str):
-        """配置热重载回调，清空策略缓存。"""
+        """配置热重载回调：清空策略缓存 + 更新 K 线订阅。"""
         logger.info("配置已重新加载: %s", filename)
         self._strategy_cache = None  # 缓存失效，下次重建
+
+        # 仅 strategies.yaml 变更时才更新订阅
+        if filename == "strategies.yaml" and self.kline_manager is not None:
+            new_set: set[tuple[str, str]] = set()
+            for strategy in self.config.strategies.strategies:
+                if not strategy.enabled:
+                    continue
+                for symbol in strategy.symbols:
+                    for tf in strategy.timeframes:
+                        new_set.add((symbol, tf))
+            asyncio.create_task(self.kline_manager.update_subscriptions(new_set))
 
     def _is_paused(self) -> bool:
         """检测 .pause 文件是否存在（紧急暂停机制）。"""
@@ -222,43 +235,38 @@ class Engine:
 
                 # 等待 K 线更新通知（最多等待 interval 秒）
                 try:
-                    klines = await asyncio.wait_for(kline_queue.get(), timeout=interval)
+                    msg = await asyncio.wait_for(kline_queue.get(), timeout=interval)
                 except asyncio.TimeoutError:
                     logger.debug("等待 K 线更新超时: %s %s", symbol, timeframe)
                     continue
 
+                klines = msg["klines"]
+                event = msg["event"]
                 if not klines:
                     logger.warning("收到空 K 线数据: %s %s", symbol, timeframe)
                     continue
 
-                # 更新模拟持仓价格（触发止损检查）—— 始终使用最新价保持实时性
-                current_price = klines[0]["close"]  # klines[0] 是当前正在形成的K线
+                # 始终更新模拟持仓价格（触发止损检查）
+                current_price = klines[0]["close"]
                 self.paper_engine.update_prices(symbol, current_price, self.data_store)
 
-                # 判断最新K线是否已完成（用于决定是否执行策略）
-                # klines[0] 是当前正在形成的K线，klines[1] 是上一根已收盘K线
-                # K线时间戳是开盘时间，收盘时间 = 开盘时间 + interval
+                # 只有 closed 事件才执行策略（K 线已收盘）
+                if event != "closed":
+                    continue
+
                 if len(klines) < 2:
                     logger.debug("K线数据不足，跳过策略执行: %s %s", symbol, timeframe)
                     continue
 
-                last_kline_open_ms = klines[1]["timestamp"]
-                last_kline_close_ms = last_kline_open_ms + interval * 1000
-                now_ms = int(_time.time() * 1000)
-                buffer_ms = getattr(self.kline_manager, 'buffer_seconds', 1) * 1000
-                # 给交易所数据留buffer_seconds缓冲，确保K线已完全形成
-                kline_fully_formed = now_ms >= last_kline_close_ms + buffer_ms
-
-                # 执行策略 — 只在K线完成后执行，确保volume等数据完整
+                # 执行策略 — klines[0] 是刚收盘的 K 线
                 strategy = self._get_strategy(strategy_name)
-                if strategy and kline_fully_formed:
+                if strategy:
                     # 获取上级周期 K 线（多周期趋势确认）
                     parent_tf = PARENT_TIMEFRAME.get(timeframe)
                     parent_klines = self.kline_manager.get_klines(symbol, parent_tf) if parent_tf else None
                     # 获取当前 funding rate（带缓存）
                     funding_rate = await self._get_funding_rate(symbol)
-                    # 排除当前正在形成的K线，策略只跑在已收盘K线上
-                    signals = strategy.on_bar(symbol, timeframe, klines[1:],
+                    signals = strategy.on_bar(symbol, timeframe, klines,
                                               self.paper_engine.positions.values(),
                                               parent_klines=parent_klines,
                                               funding_rate=funding_rate)
@@ -271,15 +279,6 @@ class Engine:
                         await self._handle_signal(signal)
                         self._last_signal_time[signal.symbol] = now
                         break  # 每根K线只处理一个信号，与回测保持一致
-                elif strategy and not kline_fully_formed:
-                    buffer_s = getattr(self.kline_manager, 'buffer_seconds', 1)
-                    logger.debug(
-                        "跳过策略执行 %s %s: 上一根K线尚未完成 (开盘=%s, 需>=收盘+%ds=%s)",
-                        symbol, timeframe,
-                        datetime.fromtimestamp(last_kline_open_ms / 1000, tz=timezone.utc).strftime("%H:%M:%S"),
-                        buffer_s,
-                        datetime.fromtimestamp((last_kline_close_ms + buffer_s * 1000) / 1000, tz=timezone.utc).strftime("%H:%M:%S"),
-                    )
 
                 # 定期打印账户概览（每 10 个周期）
                 if hasattr(self, "_cycle_count"):
