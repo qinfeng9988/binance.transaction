@@ -54,7 +54,16 @@ class BinanceAdapter(ExchangeAdapter):
         ccxt_type = "future" if self.default_type == "swap" else self.default_type
         config = {
             "enableRateLimit": True,
-            "options": {"defaultType": ccxt_type},
+            "options": {
+                "defaultType": ccxt_type,
+                # 减少启动时的 REST 请求量：
+                # - fetchMargins: 不拉保证金交易对（margin/allPairs, margin/isolated/allPairs）
+                # - fetchCurrencies: 不拉提币网络配置（capital/config/getall）
+                # - fetchMarkets: 只加载需要的市场类型，避免无用的 dapi/spot 请求
+                "fetchMargins": False,
+                "fetchCurrencies": False,
+                "fetchMarkets": ["linear"] if ccxt_type == "future" else ["spot"],
+            },
         }
         if self.api_key and self.api_secret:
             config["apiKey"] = self.api_key
