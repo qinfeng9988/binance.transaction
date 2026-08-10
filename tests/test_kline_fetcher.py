@@ -1,8 +1,11 @@
 """kline_fetcher 模块单元测试。"""
 
+import asyncio
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
-from quant_trader.core.kline_fetcher import BaseKlineFetcher, merge_kline_update
+from quant_trader.core.kline_fetcher import BaseKlineFetcher, RESTKlineFetcher, merge_kline_update
 
 
 def _kline(ts, close):
@@ -96,4 +99,82 @@ def test_merge_kline_update_outdated_timestamp_ignored():
     result, event = merge_kline_update(cached, _kline(800, 48.0))
     assert result == cached  # 缓存不变
     assert event == "update"
+
+
+# ---------- RESTKlineFetcher ----------
+
+def _make_mock_exchange():
+    """构造一个模拟 BinanceAdapter。"""
+    exchange = MagicMock()
+    exchange.fetch_ohlcv = AsyncMock(return_value=[
+        {"timestamp": 1000, "open": 100, "high": 101, "low": 99, "close": 100.5, "volume": 1.0},
+    ])
+    return exchange
+
+
+def test_rest_fetcher_initial_state():
+    """RESTKlineFetcher 在 start 前 is_running 为 False。"""
+    exchange = _make_mock_exchange()
+    fetcher = RESTKlineFetcher(
+        exchange=exchange,
+        on_kline=lambda *_: None,
+        timeframes_seconds={"5m": 300},
+    )
+    assert fetcher.is_running is False
+
+
+def test_rest_fetcher_starts_and_stops():
+    """start 后 is_running 为 True，stop 后为 False。"""
+    exchange = _make_mock_exchange()
+    fetcher = RESTKlineFetcher(
+        exchange=exchange,
+        on_kline=lambda *_: None,
+        timeframes_seconds={"5m": 300},
+        buffer_seconds=0,
+    )
+
+    asyncio.run(fetcher.start({("BTC/USDT", "5m")}))
+    assert fetcher.is_running is True
+    assert ("BTC/USDT", "5m") in fetcher._symbol_timeframes
+
+    asyncio.run(fetcher.stop())
+    assert fetcher.is_running is False
+
+
+def test_rest_fetcher_subscribe_adds_new_subscription():
+    """subscribe 启动新增 (symbol, tf) 的循环。"""
+    exchange = _make_mock_exchange()
+    fetcher = RESTKlineFetcher(
+        exchange=exchange,
+        on_kline=lambda *_: None,
+        timeframes_seconds={"5m": 300, "1h": 3600},
+        buffer_seconds=0,
+    )
+
+    asyncio.run(fetcher.start({("BTC/USDT", "5m")}))
+    asyncio.run(fetcher.subscribe({("ETH/USDT", "5m")}))
+
+    assert ("BTC/USDT", "5m") in fetcher._symbol_timeframes
+    assert ("ETH/USDT", "5m") in fetcher._symbol_timeframes
+
+    asyncio.run(fetcher.stop())
+
+
+def test_rest_fetcher_unsubscribe_removes_subscription():
+    """unsubscribe 取消对应循环。"""
+    exchange = _make_mock_exchange()
+    fetcher = RESTKlineFetcher(
+        exchange=exchange,
+        on_kline=lambda *_: None,
+        timeframes_seconds={"5m": 300},
+        buffer_seconds=0,
+    )
+
+    asyncio.run(fetcher.start({("BTC/USDT", "5m"), ("ETH/USDT", "5m")}))
+    asyncio.run(fetcher.unsubscribe({("ETH/USDT", "5m")}))
+
+    assert ("BTC/USDT", "5m") in fetcher._symbol_timeframes
+    assert ("ETH/USDT", "5m") not in fetcher._symbol_timeframes
+
+    asyncio.run(fetcher.stop())
 

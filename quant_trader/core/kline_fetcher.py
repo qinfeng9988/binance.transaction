@@ -6,8 +6,13 @@
 3. 支持动态增减订阅（配置热重载）
 """
 
+import asyncio
+import logging
+import time as _time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+
+logger = logging.getLogger(__name__)
 
 
 class BaseKlineFetcher(ABC):
@@ -84,3 +89,91 @@ def merge_kline_update(cached: list[dict], new_kline: dict) -> tuple[list[dict],
 
     # new_ts < head_ts: 历史/乱序数据，忽略
     return cached, "update"
+
+
+class RESTKlineFetcher(BaseKlineFetcher):
+    """REST 轮询式 K 线获取器。
+
+    从现有 KlineDataManager._fetch_loop 迁移而来。
+    每次 fetch 后通过 on_kline 回调通知，event 固定为 "closed"。
+    """
+
+    def __init__(
+        self,
+        exchange,
+        on_kline: Callable[[str, str, list[dict], str], None],
+        timeframes_seconds: dict[str, int],
+        buffer_seconds: int = 1,
+    ):
+        super().__init__(on_kline)
+        self.exchange = exchange
+        self.timeframes_seconds = timeframes_seconds
+        self.buffer_seconds = buffer_seconds
+        self._tasks: dict[tuple[str, str], asyncio.Task] = {}
+        self._running = False
+
+    async def start(self, symbol_timeframes: set[tuple[str, str]]) -> None:
+        """启动所有 (symbol, tf) 的轮询循环。"""
+        self._running = True
+        self._symbol_timeframes = set(symbol_timeframes)
+        for symbol, timeframe in symbol_timeframes:
+            self._start_one(symbol, timeframe)
+        logger.info("RESTKlineFetcher 已启动: %d 个订阅", len(self._tasks))
+
+    def _start_one(self, symbol: str, timeframe: str) -> None:
+        """启动单个 (symbol, tf) 的循环。"""
+        key = (symbol, timeframe)
+        if key in self._tasks and not self._tasks[key].done():
+            return  # 已在运行
+        task = asyncio.create_task(self._fetch_loop(symbol, timeframe))
+        self._tasks[key] = task
+
+    async def _fetch_loop(self, symbol: str, timeframe: str) -> None:
+        """单个 (symbol, tf) 的轮询循环。对齐到 K 线收盘时刻。"""
+        interval = self.timeframes_seconds.get(timeframe, 300)
+        logger.info("REST 拉取已启动: %s %s (间隔=%d秒)", symbol, timeframe, interval)
+
+        while self._running:
+            try:
+                klines = await self.exchange.fetch_ohlcv(symbol, timeframe, limit=151)
+                if klines:
+                    # ccxt 返回最旧在前，策略需要最新在前
+                    klines.reverse()
+                    self._notify(symbol, timeframe, klines, "closed")
+            except Exception:
+                logger.exception("REST K 线拉取异常: %s %s", symbol, timeframe)
+
+            # 对齐到下一根 K 线收盘后 buffer_seconds 秒
+            now = _time.time()
+            next_execution = ((int(now) // interval) + 1) * interval + self.buffer_seconds
+            sleep_time = max(1, next_execution - now)
+            await asyncio.sleep(sleep_time)
+
+    async def stop(self) -> None:
+        """停止所有轮询循环。"""
+        self._running = False
+        for task in self._tasks.values():
+            task.cancel()
+        self._tasks.clear()
+        self._symbol_timeframes.clear()
+        logger.info("RESTKlineFetcher 已停止")
+
+    async def subscribe(self, new_items: set[tuple[str, str]]) -> None:
+        """动态新增订阅。"""
+        for symbol, timeframe in new_items:
+            self._symbol_timeframes.add((symbol, timeframe))
+            self._start_one(symbol, timeframe)
+        logger.info("RESTKlineFetcher 新增订阅: %d", len(new_items))
+
+    async def unsubscribe(self, removed_items: set[tuple[str, str]]) -> None:
+        """动态移除订阅。"""
+        for key in removed_items:
+            task = self._tasks.pop(key, None)
+            if task and not task.done():
+                task.cancel()
+            self._symbol_timeframes.discard(key)
+        logger.info("RESTKlineFetcher 移除订阅: %d", len(removed_items))
+
+    @property
+    def is_running(self) -> bool:
+        return self._running
