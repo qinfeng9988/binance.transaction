@@ -283,3 +283,75 @@ def test_ws_fetcher_merge_incoming_message():
     )
     assert received_events[-1] == ("closed", 101.0)
 
+
+# ---------- 端到端集成测试 ----------
+
+def test_full_pipeline_rest_only():
+    """端到端：REST 模式下，KlineDataManager 收到 closed 事件并更新价格。"""
+    from quant_trader.core.kline_manager import KlineDataManager
+
+    exchange = MagicMock()
+    exchange.fetch_ohlcv = AsyncMock(return_value=[
+        {"timestamp": 1000, "open": 100, "high": 101, "low": 99, "close": 100.5, "volume": 1.0},
+    ])
+    data_store = MagicMock()
+    manager = KlineDataManager(
+        exchange=exchange,
+        data_store=data_store,
+        timeframes_seconds={"5m": 300},
+        buffer_seconds=0,
+        proxy=None,
+    )
+
+    # 模拟 REST fetcher 直接回调
+    klines = [
+        {"timestamp": 2000, "open": 100, "high": 101, "low": 99, "close": 101.0, "volume": 1.0},
+        {"timestamp": 1000, "open": 100, "high": 101, "low": 99, "close": 100.0, "volume": 1.0},
+    ]
+    manager._on_kline_update("BTC/USDT", "5m", klines, "closed", "rest")
+
+    # 实时价格已更新
+    assert manager.get_realtime_price("BTC/USDT") == 101.0
+    # K 线 cache 已更新
+    assert manager.get_klines("BTC/USDT", "5m") == klines
+    # 数据库已写入
+    assert data_store.insert_klines.called
+
+
+def test_full_pipeline_ws_then_rest_fallback():
+    """端到端：WebSocket 降级到 REST，再恢复切回 ws。"""
+    from quant_trader.core.kline_manager import KlineDataManager
+
+    exchange = MagicMock()
+    exchange.fetch_ohlcv = AsyncMock(return_value=[])
+    data_store = MagicMock()
+    manager = KlineDataManager(
+        exchange=exchange,
+        data_store=data_store,
+        timeframes_seconds={"5m": 300},
+        buffer_seconds=0,
+        proxy=None,
+    )
+    manager._symbol_timeframes = {("BTC/USDT", "5m")}
+
+    async def _run():
+        # 1. 触发降级（内部 asyncio.create_task 需要事件循环）
+        manager._fallback_to_rest()
+        await asyncio.sleep(0)
+        assert manager._active_source == "rest"
+        assert manager.rest_fetcher is not None
+
+        # 2. 模拟 REST 数据回调
+        klines_rest = [{"timestamp": 1000, "open": 100, "high": 101, "low": 99, "close": 100.0, "volume": 1.0}]
+        manager._on_kline_update("BTC/USDT", "5m", klines_rest, "closed", "rest")
+        assert manager.get_realtime_price("BTC/USDT") == 100.0
+
+        # 3. WebSocket 恢复，推送 update 事件 → 应切回 ws
+        klines_ws = [{"timestamp": 1000, "open": 100, "high": 101, "low": 99, "close": 100.5, "volume": 1.0}]
+        manager._on_kline_update("BTC/USDT", "5m", klines_ws, "update", "ws")
+        await asyncio.sleep(0)  # 让 create_task(stop) 调度执行
+
+    asyncio.run(_run())
+    assert manager._active_source == "ws"
+    assert manager.get_realtime_price("BTC/USDT") == 100.5  # ws 数据覆盖了
+
