@@ -219,6 +219,11 @@ class WebSocketKlineFetcher(BaseKlineFetcher):
         self._fallback_triggered = False  # 是否已触发降级
         # (symbol, tf) → list[dict] 本地缓存（WebSocket 推送合并维护）
         self._kline_caches: dict[tuple[str, str], list[dict]] = {}
+        # ccxt 统一 symbol → 用户配置的原始 symbol
+        # 例：'XAU/USDT:USDT' → 'XAU/USDT'
+        # watch_ohlcv_for_symbols 返回的 key 是统一格式，需归一化回原始格式
+        # 以保持与 RESTKlineFetcher / 配置 / 数据库存储一致
+        self._symbol_unified_to_orig: dict[str, str] = {}
 
     async def start(self, symbol_timeframes: set[tuple[str, str]]) -> None:
         """启动 WebSocket 获取：先 REST bootstrap，再启动 ws 循环。"""
@@ -226,6 +231,38 @@ class WebSocketKlineFetcher(BaseKlineFetcher):
         self._symbol_timeframes = set(symbol_timeframes)
         await self._bootstrap(symbol_timeframes)
         self._ws_task = asyncio.create_task(self._ws_loop())
+
+    def _register_symbol_mapping(self, unified_symbol: str, original_symbol: str) -> None:
+        """记录 ccxt 统一 symbol 到用户原始 symbol 的映射。
+
+        若 unified_symbol 已存在但映射不同，记录 warning 但不覆盖（应保持一致）。
+        """
+        existing = self._symbol_unified_to_orig.get(unified_symbol)
+        if existing is None:
+            self._symbol_unified_to_orig[unified_symbol] = original_symbol
+        elif existing != original_symbol:
+            logger.warning(
+                "symbol 映射冲突: %s 已映射到 %s，新映射 %s 被忽略",
+                unified_symbol, existing, original_symbol,
+            )
+
+    def _normalize_symbol(self, symbol: str) -> str:
+        """把 ccxt 返回的统一 symbol（如 'XAU/USDT:USDT'）归一化为原始格式（'XAU/USDT'）。
+
+        若映射表未命中，回退到 ccxt.market(base/quote) 反查；再不行就原样返回。
+        """
+        if symbol in self._symbol_unified_to_orig:
+            return self._symbol_unified_to_orig[symbol]
+        # 回退：从 ccxt market 反查 base/quote
+        if self._ws is not None:
+            try:
+                m = self._ws.market(symbol)
+                normalized = f"{m['base']}/{m['quote']}"
+                self._symbol_unified_to_orig[symbol] = normalized
+                return normalized
+            except Exception:
+                logger.debug("symbol 归一化失败: %s", symbol, exc_info=True)
+        return symbol
 
     async def _bootstrap(self, symbol_timeframes: set[tuple[str, str]]) -> None:
         """通过 REST 拉取每个 (symbol, tf) 的初始 151 根 K 线。"""
@@ -237,8 +274,24 @@ class WebSocketKlineFetcher(BaseKlineFetcher):
                     self._kline_caches[(symbol, timeframe)] = klines
                     self._notify(symbol, timeframe, klines, "closed")
                     logger.info("WebSocket bootstrap 完成: %s %s (%d 根)", symbol, timeframe, len(klines))
+                    # 注册统一 symbol 映射：通过 REST exchange 查 market
+                    self._register_unified_mapping_for(symbol)
             except Exception:
                 logger.exception("WebSocket bootstrap 失败: %s %s", symbol, timeframe)
+
+    def _register_unified_mapping_for(self, original_symbol: str) -> None:
+        """用 BinanceAdapter (REST) 查 market，记录 original → unified 的反向映射。
+
+        真正的 unified symbol 由 ccxt 内部决定（如 'XAU/USDT' → 'XAU/USDT:USDT'）。
+        """
+        try:
+            ex = self.rest_exchange.exchange  # ccxt.binance 同步实例
+            market = ex.market(original_symbol)
+            unified = market["symbol"]
+            if unified != original_symbol:
+                self._register_symbol_mapping(unified, original_symbol)
+        except Exception:
+            logger.debug("查询 market 失败 %s", original_symbol, exc_info=True)
 
     async def _ws_loop(self) -> None:
         """主循环：连接 → 订阅 → watch，异常时重连。"""
@@ -301,9 +354,15 @@ class WebSocketKlineFetcher(BaseKlineFetcher):
             logger.info("订阅集合变化，重新订阅 WebSocket")
 
     def _handle_ws_message(self, symbol: str, timeframe: str, candles: list[list]) -> None:
-        """处理 WebSocket 推送：把单根 K 线合并到缓存。"""
+        """处理 WebSocket 推送：把单根 K 线合并到缓存。
+
+        symbol 来自 watch_ohlcv_for_symbols 的 key（ccxt 统一格式，如 'XAU/USDT:USDT'），
+        归一化为用户配置的原始格式（'XAU/USDT'）以保持与 REST/数据库一致。
+        """
         if not candles:
             return
+
+        symbol = self._normalize_symbol(symbol)
 
         # 取最新一根（candles[-1] 是最新的）
         raw = candles[-1]
@@ -381,7 +440,7 @@ class WebSocketKlineFetcher(BaseKlineFetcher):
 
     async def subscribe(self, new_items: set[tuple[str, str]]) -> None:
         """动态新增订阅。下一轮 watch 会自动包含新订阅。"""
-        # 先 bootstrap 新订阅的历史数据
+        # 先 bootstrap 新订阅的历史数据（_bootstrap 内会注册映射）
         await self._bootstrap(new_items)
         for item in new_items:
             self._symbol_timeframes.add(item)

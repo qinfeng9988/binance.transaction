@@ -284,6 +284,49 @@ def test_ws_fetcher_merge_incoming_message():
     assert received_events[-1] == ("closed", 101.0)
 
 
+def test_ws_fetcher_normalizes_unified_symbol():
+    """watch_ohlcv_for_symbols 返回统一 symbol ('XAU/USDT:USDT')，
+    需归一化为用户配置的原始格式 ('XAU/USDT')，与 REST/数据库保持一致。"""
+    exchange = _make_mock_exchange()
+    received_symbols = []
+
+    fetcher = WebSocketKlineFetcher(
+        rest_exchange=exchange,
+        on_kline=lambda sym, tf, klines, event: received_symbols.append(sym),
+        on_fallback_to_rest=lambda: None,
+        timeframes_seconds={"5m": 300},
+        proxy=None,
+    )
+
+    # 预注册映射（模拟 _bootstrap 注册的结果）
+    fetcher._register_symbol_mapping("XAU/USDT:USDT", "XAU/USDT")
+    fetcher._kline_caches[("XAU/USDT", "5m")] = [
+        {"timestamp": 1000, "open": 100, "high": 101, "low": 99, "close": 100.0, "volume": 1.0},
+    ]
+
+    # 推送统一格式 symbol
+    fetcher._handle_ws_message(
+        "XAU/USDT:USDT", "5m",
+        [[1000, 100, 101, 99, 100.5, 1.0]],
+    )
+
+    assert received_symbols == ["XAU/USDT"]  # 归一化后
+
+
+def test_ws_fetcher_normalize_unknown_symbol_passthrough():
+    """未注册映射的 symbol 直接原样返回（不丢失数据）。"""
+    exchange = _make_mock_exchange()
+    fetcher = WebSocketKlineFetcher(
+        rest_exchange=exchange,
+        on_kline=lambda *_: None,
+        on_fallback_to_rest=lambda: None,
+        timeframes_seconds={"5m": 300},
+        proxy=None,
+    )
+    # 映射表为空，_ws 也为 None → 直接返回原 symbol
+    assert fetcher._normalize_symbol("BTC/USDT") == "BTC/USDT"
+
+
 # ---------- 端到端集成测试 ----------
 
 def test_full_pipeline_rest_only():
