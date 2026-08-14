@@ -7,7 +7,8 @@ quant_trader/
 ├── config/                        # 配置文件目录
 │   ├── exchanges.yaml             # 交易所 API Key、数据库连接、代理配置
 │   ├── strategies.yaml            # 策略配置（币种、周期、参数、开关）
-│   ├── risk.yaml                  # 风控参数（杠杆、止损、仓位）
+│   ├── risk.yaml                  # 风控参数（杠杆、止损、仓位、连续亏损冷静期）
+│   └── backtest.yaml              # 回测专用配置（回测库连接、补全容差）
 │   └── manual_config.yaml         # 手动交易辅助配置（S/R 查询参数）
 ├── core/
 │   ├── config_loader.py           # 配置加载 + 文件热重载
@@ -201,9 +202,37 @@ position_limits:
   max_leveraged_loss_pct: 15  # 单笔最大亏损占保证金百分比
   max_daily_loss_pct: 30      # 日累计亏损占保证金百分比
   max_single_position_pct: 20 # 单笔仓位占总资金百分比
+
+# 连续亏损风控（实盘与回测共享）
+max_consecutive_losses: 3              # 连续亏损 N 次触发冷静期
+cooldown_duration_seconds: 3600        # 冷静期时长（秒），期间拒绝新开仓
+max_total_risk_pct: 8.0                # 所有持仓潜在最大亏损占余额上限
 ```
 
 **生效方式**：修改后 **热重载**（约 1 秒内自动生效，无需重启）
+
+### 4. backtest.yaml — 回测专用配置
+
+```yaml
+backtest_database:
+  host: "localhost"
+  port: 5432
+  dbname: "db_backtest"     # 独立回测库，与生产库隔离
+  user: "postgres"
+  password: "你的密码"
+
+backtest:
+  initial_balance: 100000.0              # 回测初始资金
+  funding_rate_cache_dir: "quant_trader/data/funding_rates"
+  default_type: "swap"
+
+data_fetch:
+  current_tolerance: 0.001   # 当前周期 K 线允许缺失率
+  parent_tolerance: 0.005    # parent 周期允许缺失率
+  max_retries: 5             # API 补全最大重试次数
+```
+
+**生效方式**：重启回测脚本生效（回测脚本一次性运行，无热重载需求）
 
 ---
 
@@ -213,7 +242,8 @@ position_limits:
 |---------|------|---------|------|
 | 静态配置 | exchanges.yaml | 重启生效 | API Key、数据库连接、代理 |
 | 动态配置 | strategies.yaml | 热重载 | 策略开关、币种、周期、参数 |
-| 动态配置 | risk.yaml | 热重载 | 止损%、杠杆、仓位比例 |
+| 动态配置 | risk.yaml | 热重载 | 止损%、杠杆、仓位比例、连续亏损冷静期 |
+| 静态配置 | backtest.yaml | 重启回测脚本生效 | 回测库连接、补全容差 |
 
 ## 运行模式
 
@@ -624,6 +654,8 @@ binance:
 | 单笔最大亏损 | 保证金的 15% | 防止单笔亏太多 |
 | 日累计亏损 | 保证金的 30% | 触发后暂停新交易 |
 | 自动降杠杆 | 止损距离 × 杠杆 > 15% | 防止杠杆放大亏损 |
+| 连续亏损冷静期 | 3 次 → 1 小时 | 冷静期内拒绝新开仓（加仓/反向平仓不受限） |
+| 总风险上限 | 余额的 8% | 所有持仓潜在最大亏损（止损距离×数量×杠杆） |
 
 ---
 
@@ -633,22 +665,35 @@ binance:
 |------|------|
 | `core/config_loader.py` | YAML 配置加载 + watchdog 热重载 |
 | `core/data_store.py` | PostgreSQL 数据层（K 线/信号/订单/持仓/归因明细） |
-| `core/kline_manager.py` | K 线数据管理（增量拉取 + 事件订阅/发布） |
+| `core/backtest_data_store.py` | 回测专用数据层（run_id 隔离，继承 DataStore） |
+| `core/backtest_kline_driver.py` | 回测 K 线驱动（历史数据逐根推进 + parent 对齐 + funding rate 匹配） |
+| `core/signal_router.py` | 信号路由（paper 模式与回测共享的信号处理函数） |
+| `core/kline_manager.py` | K 线数据管理（WebSocket 优先 + REST 降级 + 事件订阅） |
+| `core/kline_fetcher.py` | K 线获取器（REST 轮询 / WebSocket 推送，统一接口） |
 | `core/logger.py` | 日志系统（终端 + 文件 + signals.log + trades.log） |
 | `core/query_server.py` | HTTP 查询服务（状态 + S/R 查询 + 归因查询） |
 | `core/serialization.py` | 状态序列化（持仓/账户/信号摘要） |
 | `core/status_server.py` | 状态 HTTP 服务 |
 | `exchange/binance_adapter.py` | Binance API 封装（ccxt 同步 + 线程池） |
-| `exchange/paper_trading.py` | 模拟交易引擎（余额/下单/持仓/归因/数据库恢复） |
+| `exchange/paper_trading.py` | 模拟交易引擎（余额/下单/持仓/归因/数据库恢复，实盘与回测共用） |
 | `models/__init__.py` | 数据模型定义（Signal 等） |
 | `strategies/base.py` | 策略基类 |
 | `strategies/s_r_levels.py` | 支撑/压力位策略（BTC/ETH/SOL） |
 | `strategies/bollinger_bands.py` | 双均线趋势策略（PAXG） |
 | `technical/indicators.py` | 技术指标（RSI/EMA/MACD/布林带） |
 | `technical/support_resistance.py` | 支撑/压力识别 + 成交量分布 |
-| `risk/manager.py` | 风控管理器（止损/杠杆/仓位/日亏损） |
-| `backtest/runner.py` | 回测引擎（backtesting.py 封装） |
+| `risk/manager.py` | 风控管理器（止损/杠杆/仓位/日亏损/连续亏损冷静期） |
 | `fix_positions.py` | 修复 positions 表数据（从 orders 重算持仓） |
+
+**回测相关脚本（scripts/）**：
+
+| 脚本 | 说明 |
+|------|------|
+| `backtest_runner.py` | 统一回测入口（复用 PaperTradingEngine，写 db_backtest，输出归因报告） |
+| `analyze_attribution.py` | 归因分析（--run-id / --latest / --compare 三种模式） |
+| `init_backtest_db.sql` | 回测库初始化脚本（db_backtest 建表，含 run_id 字段） |
+| `fetch_history.py` | 历史数据拉取（写入生产库 klines，运维用） |
+| `fetch_funding_history.py` | funding rate 历史拉取（JSON 缓存，回测用） |
 
 ---
 
@@ -690,13 +735,42 @@ python scripts/fetch_history.py --symbol PAXG/USDT --timeframe 1h --days 180
 
 ### Q: 如何进行回测？
 
+回测统一使用 `scripts/backtest_runner.py`，复用生产 `PaperTradingEngine`（含交易归因、风控、FIFO 拆分），结果写入独立回测库 `db_backtest`：
+
 ```bash
 # 指定日期范围回测
-python scripts/backtest_range.py --symbol ETH/USDT --timeframe 1h --start 2026-01-01 --end 2026-06-30
+python scripts/backtest_runner.py --symbol ETH/USDT --timeframe 1h --start 2026-01-01 --end 2026-06-30
 
 # 指定策略回测（用于多策略匹配同一币种时）
-python scripts/backtest_range.py --symbol PAXG/USDT --timeframe 1h --start 2026-01-01 --end 2026-06-30 --strategy bollinger_bands_paxg
+python scripts/backtest_runner.py --symbol PAXG/USDT --timeframe 1h --start 2026-01-01 --end 2026-06-30 --strategy bollinger_bands_paxg
+
+# 自定义初始资金
+python scripts/backtest_runner.py --symbol BTC/USDT --timeframe 5m --start 2026-01-01 --end 2026-06-30 --initial-balance 50000
 ```
+
+回测结束后输出基础报告（收益率/回撤/胜率）和归因报告（按事件类型×触发原因、入场序号、信号方向聚合），并打印本次 `run_id`。
+
+> 注：K 线数据首次回测时自动从 Binance 拉取写入 `db_backtest.klines`，后续回测复用，无需手动执行 fetch_history。
+
+### Q: 如何分析回测归因数据？
+
+```bash
+# 查询最近一次回测的归因详情
+python scripts/analyze_attribution.py --latest
+
+# 按 run_id 查询（run_id 在回测结束时打印）
+python scripts/analyze_attribution.py --run-id bt_20260814_063859_SOL-USDT_5m_309a82b6
+
+# 多组参数回测横向对比（先用不同参数跑多次回测）
+python scripts/analyze_attribution.py --compare bt_xxx bt_yyy bt_zzz
+```
+
+归因报告维度：
+- **事件类型 × 触发原因**：`CLOSE_PARTIAL/2.0R`（2R 止盈部分平仓）、`STOP_LOSS/stop_loss`（止损）、`CLOSE_FULL/reverse_signal`（反向信号全平）、`END_OF_DATA`（回测结束强平）各自的 PNL 贡献与胜率
+- **入场序号**：seq=1（首次开仓）vs seq≥2（加仓）的 PNL 贡献对比
+- **信号方向**：多/空持仓的归因 PNL
+
+> 注意：归因 PNL 已扣除双端手续费（入场费分摊 + 平仓费），与报告中"总盈亏"（仅扣平仓费）口径不同，归因口径为真实净盈亏。
 
 ### Q: 如何知道程序是否在运行？
 
@@ -721,6 +795,24 @@ ps aux | grep main.py
 
 ## 数据库表结构
 
+系统使用两个 PostgreSQL database（同一实例）：
+
+| database | 用途 | 初始化方式 |
+|---|---|---|
+| `db_quant_trader` | 生产（paper/live 交易数据 + 实时 K 线） | 引擎启动自动建表 |
+| `db_backtest` | 回测（多组参数实验数据 + 回测 K 线缓存） | 手动执行 `scripts/init_backtest_db.sql` |
+
+### 两库差异
+
+| 差异点 | db_quant_trader | db_backtest |
+|---|---|---|
+| 交易表 `run_id` 字段 | 无 | 有（positions/orders/signals/entries/closures/filter_stats 均含） |
+| filter_stats 唯一键 | 5 字段（strategy,symbol,tf,dir,filter_type） | 6 字段（含 run_id） |
+| klines 表 | 实时增量写入 | 首次回测拉取后跨 run_id 复用 |
+| 数据清理 | `python -m quant_trader.reset` | 按 run_id 删除或整表清空 |
+
+### 表清单（两库结构一致，回测库多 run_id 列）
+
 | 表名 | 说明 |
 |------|------|
 | `klines` | K 线行情数据（OHLCV） |
@@ -729,6 +821,7 @@ ps aux | grep main.py
 | `positions` | 持仓记录（含历史），通过 entries/closures 关联订单 |
 | `position_entries` | 入场明细（每笔开仓/加仓一条，含 entry_fee 和 order_id） |
 | `position_entry_closures` | 出场明细（按 FIFO 生成，归因 PNL 已扣平仓手续费和入场手续费分摊） |
+| `filter_stats` | 策略信号拦截原因累计统计 |
 
 ### 表关系
 
@@ -741,6 +834,8 @@ orders ←── order_id ──→ position_entries  ←── position_id ─�
 - **position_entries**：通过 order_id 关联订单，通过 signal_id 关联信号，entry_fee 记录入场手续费
 - **position_entry_closures**：通过 order_id 关联平仓订单，归因 PNL 公式：
   `(exit_price - entry_price) × close_qty × direction - fee - entry_fee × (close_qty / orig_qty)`
+- **position_entry_closures.reason**：事件类型枚举 `CLOSE_PARTIAL`（部分平仓）/ `CLOSE_FULL`（信号全平）/ `STOP_LOSS`（止损）/ `END_OF_DATA`（回测强平）
+- **position_entry_closures.trigger_reason**：策略触发原因（`2.0R` 止盈级别 / `ema_cross_down` 策略信号 / `reverse_signal` 反向信号 / `stop_loss` / `end_of_backtest`）。注意：触发语义由该字段表达，同一事件对不同 entry 的归因 pnl 可正可负，禁止用 pnl 符号推断触发原因
 - **positions**：total_fee 预聚合 = SUM(entries.entry_fee) + SUM(closures.fee)
 
 详细的字段说明和注释可在 DataGrip 中查看，所有字段已添加中文注释。

@@ -11,6 +11,7 @@ from .core.data_store import DataStore, OrderRecord, SignalRecord
 from .core.kline_manager import KlineDataManager
 from .core.logger import setup_logging
 from .core.query_server import QueryServer
+from .core.signal_router import handle_signal
 from .exchange.binance_adapter import BinanceAdapter
 from .exchange.paper_trading import PaperTradingEngine
 from .models import Signal
@@ -313,7 +314,25 @@ class Engine:
                 logger.exception("策略周期执行异常: %s %s %s", strategy_name, symbol, timeframe)
 
     async def _handle_signal(self, signal: Signal):
-        """处理策略信号：记录、风控、执行。"""
+        """处理策略信号：记录、风控、执行。
+
+        paper 模式（含回测）走 signal_router.handle_signal 共享函数；
+        live_confirm / live_auto 由本方法直接处理（实盘专属逻辑）。
+        """
+        mode = self.config.strategies.mode
+
+        if mode == "paper":
+            # paper 模式：复用 signal_router 共享函数（回测与实盘共用）
+            handle_signal(
+                signal=signal,
+                paper_engine=self.paper_engine,
+                data_store=self.data_store,
+                risk_manager=self.risk_manager,
+                mode="paper",
+            )
+            return
+
+        # 以下为实盘专属逻辑（live_confirm / live_auto）
         logger.info(
             "信号: %s %s %s 价格=%.2f 止损=%.2f 杠杆=%dx",
             signal.symbol, signal.signal_type, signal.timeframe,
@@ -340,7 +359,7 @@ class Engine:
             leverage=signal.leverage,
         ))
 
-        # 处理非开仓类信号（止损更新、部分平仓），不需要风控
+        # 实盘模式同样需要支持非开仓类信号
         if signal.action == "update_stop":
             if self.paper_engine:
                 updated = self.paper_engine.update_stop_loss(signal.symbol, signal.stop_loss)
@@ -350,7 +369,6 @@ class Engine:
 
         if signal.action == "partial_close":
             if self.paper_engine:
-                # 提取部分止盈级别 ID，传入引擎以更新去重状态
                 tp_level = signal.metadata.get("partial_tp_level") if signal.metadata else None
                 net_pnl = self.paper_engine.partial_close_position(
                     signal.symbol, signal.price, signal.close_ratio, self.data_store,
@@ -363,7 +381,6 @@ class Engine:
                     )
             return
 
-        # 处理平仓信号（布林带等策略使用）
         if signal.action == "close":
             if self.paper_engine:
                 existing = self.paper_engine.positions.get(signal.symbol)
@@ -371,6 +388,7 @@ class Engine:
                     net_pnl = self.paper_engine.close_position(
                         signal.symbol, signal.price, self.data_store,
                         order_type="close", signal_id=signal_id,
+                        trigger_reason=signal.metadata.get("reason", "signal_close"),
                     )
                     if net_pnl is not None:
                         logger.info(
@@ -380,30 +398,15 @@ class Engine:
                         )
             return
 
-        # 根据运行模式处理（开仓类信号）
-        mode = self.config.strategies.mode
-        if mode == "paper":
-            # 模拟交易：风控检查后通过模拟引擎下单
-            risk_result = self.risk_manager.check_and_adjust(signal)
-            if not risk_result["approved"]:
-                logger.warning("[风控拒绝] %s %s: %s", signal.symbol, signal.signal_type, risk_result["reason"])
-                return
-
-            signal.leverage = risk_result["leverage"]
-            self._execute_paper_trade(signal, signal_id)
-
-        elif mode == "live_confirm":
-            # 实盘+人工确认：推送通知等待确认
+        # 开仓类信号：实盘走风控 + 实盘下单
+        if mode == "live_confirm":
             logger.info("[实盘确认] 信号待审批: %s %s", signal.symbol, signal.signal_type)
             # TODO: 接入通知通道（钉钉/邮件/Telegram）
-
         elif mode == "live_auto":
-            # 实盘全自动：风控检查后自动下单
             risk_result = self.risk_manager.check_and_adjust(signal)
             if not risk_result["approved"]:
                 logger.warning("[风控拒绝] %s %s: %s", signal.symbol, signal.signal_type, risk_result["reason"])
                 return
-
             signal.leverage = risk_result["leverage"]
             await self._execute_live_trade(signal, signal_id)
 

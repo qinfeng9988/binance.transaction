@@ -455,3 +455,24 @@ strategies:
     atr_multiplier: 1.5
     # ---- 杠杆 ----
     leverage: 3
+- name: bollinger_bands_paxg
+  enabled: true
+  symbols:
+  - PAXG/USDT
+  timeframes:
+  - 5m
+  - 15m
+  - 1h
+  params:
+    # ---- 双均线参数（更长周期）----
+    ema_fast_period: 20
+    ema_slow_period: 50
+    # ---- RSI 参数 ----
+    rsi_period: 14
+    rsi_overbought: 75
+    rsi_oversold: 25
+    # ---- ATR 止损 ----
+    atr_period: 14
+    atr_multiplier: 1.5
+    # ---- 杠杆 ----
+    leverage: 3

@@ -277,7 +277,7 @@ funding_filter_enabled: false
 | 引擎缓存 | `main.py:_get_funding_rate()` | 60 秒 TTL，每周期复用 |
 | 硬阈值过滤 | `strategies/s_r_levels.py` 步骤 4a | 设置 `can_buy=False` / `can_sell=False` |
 | 软阈值过滤 | `strategies/s_r_levels.py` 步骤 5 | `quality_score -= 1.0`，可选降杠杆 |
-| 回测加载 | `scripts/backtest_range.py` | `_load_funding_rates()` + `_match_funding_rate()` |
+| 回测加载 | `quant_trader/core/backtest_kline_driver.py` | `load_funding_rates()` + `match_funding_rate()` |
 
 #### 日志输出示例
 
@@ -762,14 +762,14 @@ python scripts/fetch_funding_history.py --symbol BTC/USDT --days 60
 **执行回测：**
 
 ```bash
-# BTC 回测
-python scripts/backtest.py --symbol BTC/USDT --timeframe 5m --days 60
-
-# 指定日期范围回测
-python scripts/backtest_range.py --symbol BTC/USDT --timeframe 5m --start 2026-02-01 --end 2026-04-30
+# 指定日期范围回测（统一入口，复用生产 PaperTradingEngine）
+python scripts/backtest_runner.py --symbol BTC/USDT --timeframe 5m --start 2026-02-01 --end 2026-04-30
 
 # ETH 回测
-python scripts/backtest.py --symbol ETH/USDT --timeframe 1h --days 60
+python scripts/backtest_runner.py --symbol ETH/USDT --timeframe 1h --start 2026-04-01 --end 2026-06-30
+
+# 回测后归因分析（--latest 取最近一次，--run-id 指定，--compare 多参数对比）
+python scripts/analyze_attribution.py --latest
 ```
 
 > **注意**：回测时若 funding rate 缓存缺失，将自动跳过 FR 过滤（日志会提示），结果与关闭 `funding_filter_enabled` 一致。

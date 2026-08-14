@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Quant Trading Engine — Core Runtime Architecture",
+    "quality_profile": "showcase",
+    "viewBox": [1560, 940]
+  },
+  "components": [
+    { "id": "binance_ws", "type": "external", "label": "Binance WebSocket", "sublabel": "ccxt.pro watch_ohlcv", "pos": [60, 60], "size": [160, 56] },
+    { "id": "binance_rest", "type": "external", "label": "Binance REST", "sublabel": "ccxt fetch_ohlcv", "pos": [60, 180], "size": [160, 56] },
+    { "id": "ws_fetcher", "type": "backend", "label": "WebSocketKlineFetcher", "sublabel": "实时推送 + 3次重连降级", "pos": [320, 60], "size": [180, 56] },
+    { "id": "rest_fetcher", "type": "backend", "label": "RESTKlineFetcher", "sublabel": "轮询降级 (对齐收盘时刻)", "pos": [320, 180], "size": [180, 56] },
+    { "id": "config", "type": "backend", "label": "ConfigLoader", "sublabel": "热重载 strategies.yaml", "pos": [60, 340], "size": [160, 56] },
+    { "id": "query_srv", "type": "frontend", "label": "QueryServer", "sublabel": "HTTP /status /query /attribution", "pos": [60, 460], "size": [160, 56] },
+    { "id": "kline_mgr", "type": "backend", "label": "KlineDataManager", "sublabel": "统一接口 · Queue 发布", "pos": [600, 120], "size": [180, 56] },
+    { "id": "engine", "type": "backend", "label": "Engine", "sublabel": "主调度 · asyncio 并发", "pos": [400, 280], "size": [180, 56] },
+    { "id": "sr_strategy", "type": "backend", "label": "SupportResistanceStrategy", "sublabel": "S/R + 多周期趋势 + 多维过滤", "pos": [880, 200], "size": [200, 56] },
+    { "id": "bb_strategy", "type": "backend", "label": "BollingerBandsStrategy", "sublabel": "EMA 双均线交叉", "pos": [880, 320], "size": [200, 56] },
+    { "id": "indicators", "type": "backend", "label": "Technical Indicators", "sublabel": "EMA/RSI/MACD/ATR/ADX/DI/BB", "pos": [1200, 260], "size": [180, 56] },
+    { "id": "risk_mgr", "type": "security", "label": "RiskManager", "sublabel": "杠杆上限 · 止损距离 · 日亏损限制", "pos": [880, 460], "size": [180, 56] },
+    { "id": "paper_engine", "type": "backend", "label": "PaperTradingEngine", "sublabel": "模拟下单 · FIFO 归因 · 止损检测", "pos": [880, 580], "size": [200, 56] },
+    { "id": "datastore", "type": "database", "label": "PostgreSQL DataStore", "sublabel": "7 张表 · 归因查询", "pos": [400, 760], "size": [180, 56] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "K 线获取层", "wraps": ["ws_fetcher", "rest_fetcher", "kline_mgr"] },
+    { "kind": "region", "label": "策略与指标层", "wraps": ["sr_strategy", "bb_strategy", "indicators"] },
+    { "kind": "security-group", "label": "风控与执行层", "wraps": ["risk_mgr", "paper_engine"] }
+  ],
+  "connections": [
+    { "id": "ws_push", "from": "binance_ws", "to": "ws_fetcher", "label": "watch_ohlcv", "variant": "emphasis", "labelDy": -20 },
+    { "id": "rest_pull", "from": "binance_rest", "to": "rest_fetcher", "label": "fetch_ohlcv", "labelDy": 20 },
+    { "id": "ws_to_mgr", "from": "ws_fetcher", "to": "kline_mgr", "label": "update/closed", "labelDy": -20 },
+    { "id": "rest_to_mgr", "from": "rest_fetcher", "to": "kline_mgr", "label": "closed", "variant": "dashed", "labelDy": 20 },
+    { "id": "ws_fallback", "from": "ws_fetcher", "to": "rest_fetcher", "label": "3次重连失败降级", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelAt": [410, 150] },
+    { "id": "kline_sub", "from": "kline_mgr", "to": "engine", "label": "asyncio.Queue 订阅", "variant": "emphasis", "labelAt": [490, 250] },
+    { "id": "engine_dispatch", "from": "engine", "to": "sr_strategy", "label": "on_bar()", "labelDy": -20 },
+    { "id": "engine_dispatch_bb", "from": "engine", "to": "bb_strategy", "label": "on_bar()", "labelDy": 20 },
+    { "id": "calc_indicators", "from": "sr_strategy", "to": "indicators", "label": "EMA/RSI/ADX", "labelDy": -20 },
+    { "id": "calc_indicators_bb", "from": "bb_strategy", "to": "indicators", "label": "EMA/RSI/ATR", "labelDy": 20 },
+    { "id": "signal_out", "from": "sr_strategy", "to": "engine", "label": "list[Signal]", "labelAt": [620, 240] },
+    { "id": "signal_out_bb", "from": "bb_strategy", "to": "engine", "label": "list[Signal]", "labelAt": [620, 360] },
+    { "id": "risk_check", "from": "engine", "to": "risk_mgr", "label": "check_and_adjust()", "variant": "security", "route": "orthogonal-h", "via": [[580, 308], [580, 488], [880, 488]], "labelAt": [620, 410] },
+    { "id": "place_order", "from": "engine", "to": "paper_engine", "label": "place_order()", "variant": "emphasis", "route": "orthogonal-h", "via": [[620, 308], [620, 608], [880, 608]], "labelAt": [640, 540] },
+    { "id": "store_kline", "from": "kline_mgr", "to": "datastore", "label": "klines 表", "labelAt": [560, 460] },
+    { "id": "store_signal", "from": "engine", "to": "datastore", "label": "signals 表", "labelAt": [490, 540] },
+    { "id": "store_order", "from": "paper_engine", "to": "datastore", "label": "orders/positions/entries/closures", "labelAt": [760, 700] },
+    { "id": "store_filter", "from": "engine", "to": "datastore", "label": "filter_stats 表", "labelAt": [320, 540] },
+    { "id": "config_reload", "from": "config", "to": "engine", "label": "热重载回调", "route": "orthogonal-h", "via": [[280, 368], [280, 308], [400, 308]], "labelAt": [340, 340] },
+    { "id": "config_sub_update", "from": "config", "to": "kline_mgr", "label": "update_subscriptions()", "variant": "dashed", "labelAt": [610, 100] },
+    { "id": "query_data", "from": "query_srv", "to": "datastore", "label": "归因/状态查询", "route": "orthogonal-h", "via": [[280, 488], [280, 860], [400, 860], [400, 816]], "labelAt": [340, 830] }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "K 线数据流",
+      "items": [
+        "WebSocket 优先 → REST 降级 → 恢复切回",
+        "asyncio.Queue 发布 update/closed 事件",
+        "closed 事件触发策略执行 + 数据库写入",
+        "REST bootstrap 初始 151 根 K 线"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "信号与执行流",
+      "items": [
+        "策略 on_bar() → list[Signal]",
+        "信号冷却 220s · 每根 K 线只处理一个信号",
+        "风控: 杠杆上限/止损距离/日亏损/持仓数",
+        "Paper: FIFO 归因 entries → closures"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "数据落地 (PostgreSQL 7 表)",
+      "items": [
+        "klines — OHLCV 行情 (closed 事件写入)",
+        "signals — 交易信号 (handle_signal 写入)",
+        "orders — 成交流水",
+        "positions — 持仓汇总 (加权入场价/累计盈亏)",
+        "position_entries — 入场明细 (FIFO 归因)",
+        "position_entry_closures — 出场明细",
+        "filter_stats — 过滤统计"
+      ]
+    }
+  ]
+}

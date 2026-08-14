@@ -32,3 +32,12 @@ position_limits:
 # Automatic leverage reduction
 # When stop_loss_pct * leverage > max_leveraged_loss_pct, reduce leverage
 max_leveraged_loss_pct: 15
+
+# Consecutive losses risk control (shared by paper mode and backtest)
+# 连续亏损 N 次后触发冷静期 + 加仓降级
+max_consecutive_losses: 3              # 触发阈值
+cooldown_duration_seconds: 3600        # 冷静期时长（秒），期间拒绝新开仓
+
+# Total risk limit (percentage of balance)
+# 所有 open positions 的潜在最大亏损（止损距离 × 数量 × 杠杆）占余额上限
+max_total_risk_pct: 8.0

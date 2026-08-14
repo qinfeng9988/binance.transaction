@@ -70,6 +70,29 @@ class RiskConfig:
         "max_concurrent_positions": 5,      # 最大同时持仓数
     })
     max_leveraged_loss_pct: float = 15.0    # 止损距离×杠杆的上限
+    # 连续亏损风控参数（回测与实盘共享）
+    max_consecutive_losses: int = 3         # 触发冷静期/加仓降级的连续亏损次数
+    cooldown_duration_seconds: int = 3600   # 冷静期时长（秒），期间拒绝新开仓
+    max_total_risk_pct: float = 8.0         # 所有 open positions 的潜在最大亏损占余额上限
+
+
+@dataclass
+class BacktestConfig:
+    """回测专用配置。修改后需重启回测脚本。"""
+    # 回测 DB 连接
+    db_host: str = "localhost"
+    db_port: int = 5432
+    db_name: str = "db_backtest"
+    db_user: str = ""
+    db_password: str = ""
+    # 回测参数
+    initial_balance: float = 100000.0
+    funding_rate_cache_dir: str = "quant_trader/data/funding_rates"
+    default_type: str = "swap"
+    # 数据补全容差
+    current_tolerance: float = 0.001
+    parent_tolerance: float = 0.005
+    max_retries: int = 5
 
 
 class ConfigLoader:
@@ -80,6 +103,7 @@ class ConfigLoader:
         self._exchange_cfg: ExchangeConfig | None = None
         self._strategy_cfg: StrategyGlobalConfig | None = None
         self._risk_cfg: RiskConfig | None = None
+        self._backtest_cfg: BacktestConfig | None = None
         self._watcher: Observer | None = None
         self._callbacks: list[Callable] = []
 
@@ -150,9 +174,46 @@ class ConfigLoader:
             stop_loss=raw.get("stop_loss", {}),
             position_limits=raw.get("position_limits", {}),
             max_leveraged_loss_pct=float(raw.get("max_leveraged_loss_pct", 15)),
+            max_consecutive_losses=int(raw.get("max_consecutive_losses", 3)),
+            cooldown_duration_seconds=int(raw.get("cooldown_duration_seconds", 3600)),
+            max_total_risk_pct=float(raw.get("max_total_risk_pct", 8.0)),
         )
         logger.info("已加载风控配置: 杠杆限制=%s", self._risk_cfg.leverage_limits)
         return self._risk_cfg
+
+    def load_backtest(self) -> BacktestConfig:
+        """加载 backtest.yaml（回测专用配置）。
+
+        文件不存在时返回默认 BacktestConfig，便于在无 backtest.yaml 环境运行实盘代码。
+        """
+        path = self.config_dir / "backtest.yaml"
+        if not path.exists():
+            self._backtest_cfg = BacktestConfig()
+            logger.info("backtest.yaml 不存在，使用默认回测配置")
+            return self._backtest_cfg
+
+        with open(path, encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+
+        db = raw.get("backtest_database", {})
+        bt = raw.get("backtest", {})
+        fetch = raw.get("data_fetch", {})
+
+        self._backtest_cfg = BacktestConfig(
+            db_host=db.get("host", "localhost"),
+            db_port=int(db.get("port", 5432)),
+            db_name=db.get("dbname", "db_backtest"),
+            db_user=db.get("user", ""),
+            db_password=db.get("password", ""),
+            initial_balance=float(bt.get("initial_balance", 100000.0)),
+            funding_rate_cache_dir=bt.get("funding_rate_cache_dir", "quant_trader/data/funding_rates"),
+            default_type=bt.get("default_type", "swap"),
+            current_tolerance=float(fetch.get("current_tolerance", 0.001)),
+            parent_tolerance=float(fetch.get("parent_tolerance", 0.005)),
+            max_retries=int(fetch.get("max_retries", 5)),
+        )
+        logger.info("已加载回测配置: db=%s", self._backtest_cfg.db_name)
+        return self._backtest_cfg
 
     def start_watching(self, on_change: Callable | None = None):
         """启动文件监听，动态配置修改后自动重新加载。"""
@@ -189,6 +250,12 @@ class ConfigLoader:
         if not self._risk_cfg:
             self.load_risk()
         return self._risk_cfg
+
+    @property
+    def backtest(self) -> BacktestConfig:
+        if not self._backtest_cfg:
+            self.load_backtest()
+        return self._backtest_cfg
 
     def on_config_change(self, callback: Callable):
         """注册配置变更回调。"""

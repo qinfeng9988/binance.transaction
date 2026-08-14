@@ -15,6 +15,15 @@ from ..core.data_store import OrderRecord, PositionRecord, EntryRecord, ClosureR
 
 logger = logging.getLogger(__name__)
 
+# order_type → (reason 事件类型, 默认 trigger_reason)
+# reason 是机械事实（怎么平的），trigger_reason 是业务语义（为什么平）
+_ORDER_TYPE_MAP = {
+    "close": ("CLOSE_FULL", "signal_close"),
+    "take_profit_close": ("CLOSE_FULL", "take_profit"),
+    "stop_loss_close": ("STOP_LOSS", "stop_loss"),
+    "end_of_data": ("END_OF_DATA", "end_of_backtest"),
+}
+
 
 @dataclass
 class MockOrder:
@@ -286,16 +295,18 @@ class PaperTradingEngine:
 
     def close_position(self, symbol: str, exit_price: float, data_store=None,
                        order_type: str = "close", signal_id: int | None = None,
-                       order_id: str | None = None) -> float | None:
+                       order_id: str | None = None,
+                       trigger_reason: str | None = None) -> float | None:
         """全平。
 
         参数:
             symbol: 交易对
             exit_price: 平仓价格
             data_store: DataStore 实例（可选，用于同步到 DB）
-            order_type: 订单类型，"close" / "stop_loss_close" / "take_profit_close"
+            order_type: 订单类型，"close" / "stop_loss_close" / "take_profit_close" / "end_of_data"
             signal_id: 触发平仓的信号 ID（止损时为 None）
             order_id: 触发本次平仓的订单编号
+            trigger_reason: 策略触发原因，未传时按 order_type 取默认值
 
         返回:
             实现的盈亏，无持仓则返回 None
@@ -303,6 +314,9 @@ class PaperTradingEngine:
         if symbol not in self.positions:
             logger.warning("[模拟] 无持仓，无法平仓: %s", symbol)
             return None
+
+        reason, default_trigger = _ORDER_TYPE_MAP.get(order_type, ("CLOSE_FULL", "signal_close"))
+        trigger = trigger_reason or default_trigger
 
         pos = self.positions[symbol]
         entry_price = pos.entry_price
@@ -336,7 +350,8 @@ class PaperTradingEngine:
         if data_store and pos.position_id is not None:
             self._close_entries_fifo(
                 data_store, pos.position_id, exit_price, quantity,
-                fee, order_type, pos.side, signal_id, order_id=order_id,
+                fee, reason, pos.side, signal_id, order_id=order_id,
+                trigger_reason=trigger,
             )
 
         # 同步到数据库
@@ -506,7 +521,8 @@ class PaperTradingEngine:
         if data_store and pos.position_id is not None:
             self._close_entries_fifo(
                 data_store, pos.position_id, close_price, close_qty,
-                fee, "partial_close", side, signal_id, order_id=order_id,
+                fee, "CLOSE_PARTIAL", side, signal_id, order_id=order_id,
+                trigger_reason=partial_tp_level,
             )
 
         # 写入 orders 表
@@ -598,6 +614,7 @@ class PaperTradingEngine:
                     order.symbol, order.price, data_store,
                     order_type=close_type, signal_id=signal_id,
                     order_id=order.order_id,
+                    trigger_reason="reverse_signal",
                 )
                 return close_type, position_id
             # 同向单 = 加仓：检查最大加仓次数
@@ -684,7 +701,8 @@ class PaperTradingEngine:
                             exit_price: float, total_close_qty: float,
                             total_fee: float, reason: str, side: str,
                             signal_id: int | None = None,
-                            order_id: str | None = None):
+                            order_id: str | None = None,
+                            trigger_reason: str | None = None):
         """按 FIFO 顺序扣减 entries 并写入 closures。
 
         参数:
@@ -693,10 +711,11 @@ class PaperTradingEngine:
             exit_price: 出场价格
             total_close_qty: 本次总平仓数量
             total_fee: 本次平仓总手续费（按比例分摊到各 closure）
-            reason: 出场原因
+            reason: 事件类型 "CLOSE_PARTIAL" / "CLOSE_FULL" / "STOP_LOSS" / "END_OF_DATA"
             side: 持仓方向 "buy" / "sell"
             signal_id: 触发平仓的信号 ID（止损时为 None）
             order_id: 触发本次平仓的订单编号
+            trigger_reason: 策略触发原因（如 "2.0R"、"reverse_signal"）
         """
         entries = data_store.get_open_entries(position_id)
         remaining_to_close = total_close_qty
@@ -725,6 +744,7 @@ class PaperTradingEngine:
                 pnl=attributed_pnl,
                 fee=fee_share,
                 reason=reason,
+                trigger_reason=trigger_reason,
                 order_id=order_id,
                 signal_id=signal_id,
             ))

@@ -1,0 +1,29 @@
+# Backtest Database Configuration
+# 回测专用配置，与 exchanges.yaml 分离，避免污染生产配置
+#
+# 用法：回测脚本启动时加载此配置，连接独立的 db_backtest database
+
+backtest_database:
+  host: "localhost"
+  port: 5432
+  dbname: "db_backtest"
+  user: "postgres"
+  password: "123456"
+
+# 回测专用参数
+backtest:
+  # 初始资金（USDT）
+  initial_balance: 100000.0
+  # funding rate 缓存目录（JSON 文件，按 symbol 命名）
+  funding_rate_cache_dir: "quant_trader/data/funding_rates"
+  # 默认交易模式（回测固定为 paper）
+  default_type: "swap"
+
+# 回测数据补全
+data_fetch:
+  # 当前周期 K 线允许缺失率（0.001 = 0.1%）
+  current_tolerance: 0.001
+  # parent 周期 K 线允许缺失率（更宽松）
+  parent_tolerance: 0.005
+  # API 补全最大重试次数
+  max_retries: 5

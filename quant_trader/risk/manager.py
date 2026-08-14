@@ -8,10 +8,11 @@
 - 日累计亏损限制
 - 仓位占比限制
 - 最大同时持仓数
+- 连续亏损冷静期（参数化）
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,31 @@ class RiskManager:
         self._daily_loss = 0.0
         self._last_reset_date = datetime.now(tz=timezone.utc).date()
 
+        # 连续亏损/冷静期状态
+        self._consecutive_losses = 0
+        self._cooldown_end: datetime | None = None
+
+    # ============================================================
+    # 参数读取（从配置）
+    # ============================================================
+
+    @property
+    def max_consecutive_losses(self) -> int:
+        return self._config.max_consecutive_losses
+
+    @property
+    def cooldown_duration_seconds(self) -> int:
+        return self._config.cooldown_duration_seconds
+
+    @property
+    def max_total_risk_pct(self) -> float:
+        return self._config.max_total_risk_pct
+
+    @property
+    def consecutive_losses(self) -> int:
+        """当前连续亏损次数（供信号路由层判断加仓降级）。"""
+        return self._consecutive_losses
+
     def check_and_adjust(self, signal) -> dict | None:
         """对信号进行风控检查，必要时自动调整杠杆。
 
@@ -40,6 +66,25 @@ class RiskManager:
         """
         # 每日重置
         self._reset_if_new_day()
+
+        # 连续亏损冷静期检查（仅对新开仓生效，反向平仓和加仓由信号路由层处理）
+        existing_pos = None
+        try:
+            open_positions = self._data_store.get_open_positions()
+            existing_pos = next((p for p in open_positions if p.symbol == signal.symbol), None)
+        except Exception:
+            logger.debug("查询 open positions 失败", exc_info=True)
+
+        is_new_open = existing_pos is None
+        if is_new_open and self._is_in_cooldown():
+            logger.warning(
+                "[风控] %s 新开仓被拒：连续亏损 %d 次，冷静期至 %s",
+                signal.symbol, self._consecutive_losses, self._cooldown_end,
+            )
+            return {
+                "approved": False,
+                "reason": f"连续亏损冷静期（剩 {int((self._cooldown_end - datetime.now(tz=timezone.utc)).total_seconds())} 秒）",
+            }
 
         cfg = self._config
         symbol_base = signal.symbol.split("/")[0]  # "BTC" from "BTC/USDT"
@@ -92,10 +137,8 @@ class RiskManager:
             return {"approved": False, "reason": "持仓数已达上限"}
 
         # 7. 单币种仓位占比
-        open_positions = self._data_store.get_open_positions()
         symbol_positions = [p for p in open_positions if p.symbol == signal.symbol]
         if symbol_positions:
-            total_qty = sum(p.quantity for p in symbol_positions)
             # 粗略检查：新增仓位后是否超限（需要总资金信息，此处简化）
             pass  # TODO: 需要传入总资金才能计算占比
 
@@ -108,10 +151,41 @@ class RiskManager:
             "stop_loss": signal.stop_loss,
         }
 
+    # ============================================================
+    # 连续亏损/冷静期管理
+    # ============================================================
+
+    def _is_in_cooldown(self) -> bool:
+        """当前是否处于连续亏损冷静期内。"""
+        if self._cooldown_end is None:
+            return False
+        return datetime.now(tz=timezone.utc) < self._cooldown_end
+
     def record_loss(self, loss_pct: float):
-        """记录亏损（平仓后调用）。"""
+        """记录亏损（平仓后调用）。
+
+        连续亏损达阈值时触发冷静期。
+        """
         self._daily_loss += loss_pct
-        logger.info("[风控] 记录亏损 %.2f%%，日累计 %.2f%%", loss_pct, self._daily_loss)
+        self._consecutive_losses += 1
+        logger.info(
+            "[风控] 记录亏损 %.2f%%，连续 %d 次，日累计 %.2f%%",
+            loss_pct, self._consecutive_losses, self._daily_loss,
+        )
+
+        if self._consecutive_losses >= self.max_consecutive_losses and self._cooldown_end is None:
+            self._cooldown_end = datetime.now(tz=timezone.utc) + timedelta(seconds=self.cooldown_duration_seconds)
+            logger.warning(
+                "[风控] 连续亏损 %d 次达阈值，进入冷静期 %d 秒，至 %s",
+                self._consecutive_losses, self.cooldown_duration_seconds, self._cooldown_end,
+            )
+
+    def record_win(self):
+        """记录盈利（平仓后调用），重置连续亏损计数。"""
+        if self._consecutive_losses > 0:
+            logger.info("[风控] 盈利，重置连续亏损计数 %d → 0", self._consecutive_losses)
+        self._consecutive_losses = 0
+        # 盈利不立即解除冷静期（防止抖动），到期自动解除
 
     def _reset_if_new_day(self):
         """新的一天重置日亏损计数器。"""

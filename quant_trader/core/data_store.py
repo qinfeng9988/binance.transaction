@@ -130,7 +130,13 @@ class EntryRecord:
 
 @dataclass
 class ClosureRecord:
-    """出场明细记录（归因）。"""
+    """出场明细记录（归因）。
+
+    reason 与 trigger_reason 分离：
+    - reason: 事件类型（机械事实）"CLOSE_PARTIAL" / "CLOSE_FULL" / "STOP_LOSS" / "END_OF_DATA"
+    - trigger_reason: 策略触发原因（业务语义），如 "2.0R"、"ema_cross_down"、"reverse_signal"。
+      同一 reason 下对不同 entry 的归因 pnl 可正可负，触发原因不由 pnl 符号推断。
+    """
     entry_id: int
     close_qty: float
     entry_price: float
@@ -138,6 +144,7 @@ class ClosureRecord:
     pnl: float
     fee: float
     reason: str
+    trigger_reason: str | None = None
     order_id: str | None = None
     signal_id: int | None = None
 
@@ -315,7 +322,8 @@ CREATE TABLE IF NOT EXISTS position_entry_closures (
     exit_price NUMERIC(20,8) NOT NULL,               -- 出场价
     pnl NUMERIC(20,8) NOT NULL,                      -- 本笔归因盈亏（已扣平仓手续费和入场手续费分摊）
     fee NUMERIC(20,8) NOT NULL,                      -- 本笔平仓手续费分摊
-    reason VARCHAR(20) NOT NULL,                     -- "partial_close" / "stop_loss_close" / "take_profit_close" / "close"
+    reason VARCHAR(20) NOT NULL,                     -- 事件类型: "CLOSE_PARTIAL" / "CLOSE_FULL" / "STOP_LOSS" / "END_OF_DATA"
+    trigger_reason VARCHAR(40),                      -- 策略触发原因: "2.0R" / "ema_cross_down" / "reverse_signal" / "stop_loss" 等
     order_id VARCHAR(50),                            -- 关联订单编号
     signal_id INTEGER REFERENCES signals(id) ON DELETE SET NULL,
     close_time TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -325,7 +333,8 @@ COMMENT ON TABLE position_entry_closures IS '出场明细表，每笔平仓按 F
 COMMENT ON COLUMN position_entry_closures.close_qty IS '本次平仓数量（从对应 entry 中扣减的部分）';
 COMMENT ON COLUMN position_entry_closures.pnl IS '本笔归因盈亏，公式: (exit_price - entry_price) × close_qty × direction - fee - entry_fee × (close_qty / orig_qty)';
 COMMENT ON COLUMN position_entry_closures.fee IS '本笔平仓手续费分摊，按 close_qty / total_close_qty 比例分摊';
-COMMENT ON COLUMN position_entry_closures.reason IS '出场原因: partial_close=部分平仓, stop_loss_close=止损, take_profit_close=止盈, close=反向信号全平';
+COMMENT ON COLUMN position_entry_closures.reason IS '事件类型（机械事实）: CLOSE_PARTIAL=部分平仓, CLOSE_FULL=信号全平, STOP_LOSS=止损触发, END_OF_DATA=回测结束强平';
+COMMENT ON COLUMN position_entry_closures.trigger_reason IS '策略触发原因（业务语义）: 2.0R/3.5R=止盈级别, ema_cross_down 等=策略close信号, reverse_signal=反向信号, stop_loss=止损, end_of_backtest=回测结束';
 COMMENT ON COLUMN position_entry_closures.order_id IS '关联订单编号，指向 orders.order_id，同一平仓订单产生的多条 closure 共享同一 order_id';
 COMMENT ON COLUMN position_entry_closures.signal_id IS '触发本次平仓的信号 ID，止损时为 NULL';
 
@@ -489,6 +498,17 @@ class DataStore:
             cur.execute("COMMENT ON COLUMN position_entry_closures.order_id IS '关联订单编号，指向 orders.order_id，同一平仓订单产生的多条 closure 共享同一 order_id'")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_closures_order ON position_entry_closures(order_id)")
             logger.info("迁移: position_entry_closures 新增 order_id 字段")
+
+        # 检查 position_entry_closures 是否缺少 trigger_reason（reason 语义重构）
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'position_entry_closures' AND column_name = 'trigger_reason'
+        """)
+        if not cur.fetchone():
+            cur.execute("ALTER TABLE position_entry_closures ADD COLUMN trigger_reason VARCHAR(40)")
+            cur.execute("COMMENT ON COLUMN position_entry_closures.reason IS '事件类型（机械事实）: CLOSE_PARTIAL=部分平仓, CLOSE_FULL=信号全平, STOP_LOSS=止损触发, END_OF_DATA=回测结束强平（历史数据可能为旧值 partial_close/stop_loss_close/close/take_profit_close）'")
+            cur.execute("COMMENT ON COLUMN position_entry_closures.trigger_reason IS '策略触发原因（业务语义）: 2.0R/3.5R=止盈级别, ema_cross_down 等=策略close信号, reverse_signal=反向信号, stop_loss=止损, end_of_backtest=回测结束'")
+            logger.info("迁移: position_entry_closures 新增 trigger_reason 字段（reason 语义重构为事件类型枚举）")
 
         # 检查 positions 是否缺少 total_fee
         cur.execute("""
@@ -846,12 +866,13 @@ class DataStore:
             cur.execute(
                 """INSERT INTO position_entry_closures
                        (entry_id, close_qty, entry_price, exit_price,
-                        pnl, fee, reason, order_id, signal_id)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        pnl, fee, reason, trigger_reason, order_id, signal_id)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
                 (closure.entry_id, closure.close_qty, closure.entry_price,
                  closure.exit_price, closure.pnl, closure.fee,
-                 closure.reason, closure.order_id, closure.signal_id),
+                 closure.reason, closure.trigger_reason,
+                 closure.order_id, closure.signal_id),
             )
             return cur.fetchone()[0]
 

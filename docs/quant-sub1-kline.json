@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Sub-Diagram 1 — K线数据获取层",
+    "quality_profile": "standard",
+    "viewBox": [1380, 760]
+  },
+  "components": [
+    { "id": "ws", "type": "external", "label": "Binance WebSocket", "sublabel": "ccxt.pro watch_ohlcv", "pos": [40, 80], "size": [180, 60] },
+    { "id": "rest", "type": "external", "label": "Binance REST", "sublabel": "ccxt fetch_ohlcv", "pos": [40, 540], "size": [180, 60] },
+
+    { "id": "ws_fetcher", "type": "backend", "label": "WebSocketKlineFetcher", "sublabel": "watch 循环 + symbol 归一化", "pos": [320, 80], "size": [200, 60] },
+    { "id": "ws_cache", "type": "backend", "label": "本地 K 线缓存", "sublabel": "merge_kline_update", "pos": [620, 200], "size": [180, 60] },
+    { "id": "ws_reconnect", "type": "backend", "label": "重连降级控制", "sublabel": "3 次快速 · 之后慢速", "pos": [320, 240], "size": [200, 60] },
+
+    { "id": "rest_fetcher", "type": "backend", "label": "RESTKlineFetcher", "sublabel": "对齐收盘 + buffer_seconds", "pos": [320, 540], "size": [200, 60] },
+
+    { "id": "kline_mgr", "type": "backend", "label": "KlineDataManager", "sublabel": "缓存 · 实时价 · 订阅 fan-out", "pos": [700, 320], "size": [200, 60] },
+
+    { "id": "queue", "type": "messagebus", "label": "asyncio.Queue", "sublabel": "→ Engine (一笔带过)", "pos": [1020, 200], "size": [180, 60] },
+
+    { "id": "db", "type": "database", "label": "PostgreSQL · klines 表", "sublabel": "仅 closed 事件写入", "pos": [1020, 420], "size": [180, 60] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "WebSocket 通道", "wraps": ["ws_fetcher", "ws_cache", "ws_reconnect"] },
+    { "kind": "region", "label": "REST 降级", "wraps": ["rest_fetcher"] }
+  ],
+  "connections": [
+    { "id": "e1", "from": "ws", "to": "ws_fetcher", "label": "推送", "variant": "emphasis", "labelDy": -20 },
+    { "id": "e2", "from": "ws_fetcher", "to": "ws_reconnect", "label": "断连/异常", "labelAt": [380, 180] },
+    { "id": "e3", "from": "ws_fetcher", "to": "ws_cache", "label": "合并 K 线", "labelDy": -20, "labelDx": 30 },
+    { "id": "e4", "from": "ws_reconnect", "to": "rest_fetcher", "label": "3次失败降级", "variant": "dashed", "labelAt": [240, 400] },
+    { "id": "e5", "from": "ws_reconnect", "to": "ws_fetcher", "label": "重连切回", "variant": "dashed", "labelAt": [240, 160] },
+    { "id": "e6", "from": "rest", "to": "rest_fetcher", "label": "fetch_ohlcv", "labelDy": -20 },
+    { "id": "e7", "from": "ws_cache", "to": "kline_mgr", "label": "on_kline(update/closed)", "variant": "emphasis", "fromSide": "bottom", "toSide": "top" },
+    { "id": "e8", "from": "rest_fetcher", "to": "kline_mgr", "label": "on_kline(closed)", "variant": "dashed", "labelAt": [580, 480] },
+    { "id": "e9", "from": "kline_mgr", "to": "queue", "label": "subscribe()" },
+    { "id": "e10", "from": "kline_mgr", "to": "db", "label": "closed → klines", "variant": "emphasis" },
+    { "id": "e11", "from": "ws_fetcher", "to": "kline_mgr", "label": "REST bootstrap 151 根", "variant": "dashed", "labelAt": [560, 200] }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "WebSocket 优先 + REST 降级",
+      "items": [
+        "WebSocket 推送实时 K 线 (update + closed)",
+        "前 3 次快速重连 (指数退避 2/4/8s)",
+        "超过 3 次降级到 REST 轮询",
+        "WebSocket 恢复后自动切回"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "事件模型",
+      "items": [
+        "update：K 线正在形成 (不触发策略)",
+        "closed：K 线已收盘 (触发策略 + 写 DB)",
+        "REST bootstrap 初始 151 根历史数据",
+        "merge_kline_update 维护本地缓存"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "数据落地",
+      "items": [
+        "klines 表：仅 closed 事件写入",
+        "字段：symbol/timeframe/timestamp/OHLCV",
+        "唯一约束：UNIQUE(symbol, timeframe, timestamp)",
+        "查询：get_klines / get_klines_range / count_klines"
+      ]
+    }
+  ]
+}

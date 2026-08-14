@@ -1,0 +1,149 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Sub-Diagram 2 — 量化引擎处理与数据落地",
+    "quality_profile": "standard",
+    "viewBox": [1500, 1140]
+  },
+  "components": [
+    { "id": "queue_in", "type": "messagebus", "label": "K 线消息", "sublabel": "from KlineDataManager", "pos": [40, 80], "size": [160, 56] },
+
+    { "id": "engine", "type": "backend", "label": "Engine", "sublabel": "信号冷却 220s · 单 K 单信号", "pos": [320, 80], "size": [180, 56] },
+
+    { "id": "sr", "type": "backend", "label": "SupportResistanceStrategy", "sublabel": "S/R + 多周期趋势", "pos": [620, 80], "size": [200, 56] },
+    { "id": "bb", "type": "backend", "label": "BollingerBandsStrategy", "sublabel": "EMA 双均线交叉", "pos": [620, 200], "size": [200, 56] },
+
+    { "id": "ind_ema", "type": "backend", "label": "EMA / MACD", "sublabel": "趋势方向", "pos": [920, 60], "size": [140, 56] },
+    { "id": "ind_rsi", "type": "backend", "label": "RSI", "sublabel": "动量过滤", "pos": [920, 140], "size": [140, 56] },
+    { "id": "ind_adx", "type": "backend", "label": "ADX / +DI / -DI", "sublabel": "趋势强度", "pos": [920, 220], "size": [140, 56] },
+    { "id": "ind_atr", "type": "backend", "label": "ATR / Bollinger", "sublabel": "波动 + 止损", "pos": [920, 300], "size": [140, 56] },
+
+    { "id": "f_dist", "type": "backend", "label": "距离过滤", "sublabel": "price vs S/R", "pos": [1180, 60], "size": [140, 50] },
+    { "id": "f_adx", "type": "backend", "label": "ADX 分级", "sublabel": "质量阈值", "pos": [1180, 120], "size": [140, 50] },
+    { "id": "f_di", "type": "backend", "label": "+DI/-DI 方向", "sublabel": "主方向严格", "pos": [1180, 180], "size": [140, 50] },
+    { "id": "f_quality", "type": "backend", "label": "质量分门槛", "sublabel": "逆势 ≥ 5.0", "pos": [1180, 240], "size": [140, 50] },
+    { "id": "f_ema", "type": "backend", "label": "价格 vs EMA21", "sublabel": "位置过滤", "pos": [1180, 300], "size": [140, 50] },
+    { "id": "f_rsi", "type": "backend", "label": "RSI 动量", "sublabel": "主/逆势不同阈值", "pos": [1180, 360], "size": [140, 50] },
+    { "id": "f_vol", "type": "backend", "label": "成交量爆发", "sublabel": "1.8x 主 / 1.6x 副", "pos": [1180, 420], "size": [140, 50] },
+    { "id": "f_reject", "type": "backend", "label": "拒绝蜡烛", "sublabel": "wick/body", "pos": [1180, 480], "size": [140, 50] },
+    { "id": "f_pull", "type": "backend", "label": "回踩确认", "sublabel": "Retest", "pos": [1180, 540], "size": [140, 50] },
+    { "id": "f_fr", "type": "backend", "label": "Funding Rate", "sublabel": "硬阻断 + 软扣分", "pos": [1180, 600], "size": [140, 50] },
+    { "id": "f_add", "type": "backend", "label": "加仓控制", "sublabel": "次数 + 价格", "pos": [1180, 660], "size": [140, 50] },
+
+    { "id": "signal", "type": "messagebus", "label": "Signal", "sublabel": "open/close/update_stop/partial", "pos": [320, 380], "size": [180, 56] },
+
+    { "id": "risk", "type": "security", "label": "RiskManager", "sublabel": "check_and_adjust()", "pos": [320, 500], "size": [180, 56] },
+
+    { "id": "paper", "type": "backend", "label": "PaperTradingEngine", "sublabel": "place_order · FIFO 归因", "pos": [620, 500], "size": [200, 56] },
+
+    { "id": "db_signals", "type": "database", "label": "signals 表", "sublabel": "信号记录", "pos": [40, 380], "size": [160, 56] },
+    { "id": "db_filter", "type": "database", "label": "filter_stats 表", "sublabel": "过滤统计", "pos": [40, 460], "size": [160, 56] },
+    { "id": "db_orders", "type": "database", "label": "orders 表", "sublabel": "成交流水", "pos": [40, 560], "size": [160, 56] },
+    { "id": "db_positions", "type": "database", "label": "positions 表", "sublabel": "持仓汇总", "pos": [40, 640], "size": [160, 56] },
+    { "id": "db_entries", "type": "database", "label": "position_entries", "sublabel": "入场明细", "pos": [40, 720], "size": [160, 56] },
+    { "id": "db_closures", "type": "database", "label": "position_entry_closures", "sublabel": "出场明细 (FIFO)", "pos": [40, 800], "size": [180, 56] },
+
+    { "id": "query", "type": "frontend", "label": "QueryServer", "sublabel": "/attribution 归因查询", "pos": [620, 720], "size": [180, 56] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "策略层", "wraps": ["sr", "bb"] },
+    { "kind": "region", "label": "技术指标层", "wraps": ["ind_ema", "ind_rsi", "ind_adx", "ind_atr"] },
+    { "kind": "region", "label": "11 层过滤 (S/R 策略)", "wraps": ["f_dist", "f_adx", "f_di", "f_quality", "f_ema", "f_rsi", "f_vol", "f_reject", "f_pull", "f_fr", "f_add"] },
+    { "kind": "security-group", "label": "风控与执行", "wraps": ["risk", "paper"] },
+    { "kind": "region", "label": "PostgreSQL (6 表)", "wraps": ["db_signals", "db_filter", "db_orders", "db_positions", "db_entries", "db_closures"] }
+  ],
+  "connections": [
+    { "id": "x1", "from": "queue_in", "to": "engine", "label": "closed 事件", "variant": "emphasis" },
+    { "id": "x2", "from": "engine", "to": "sr", "label": "on_bar()", "labelDy": -16 },
+    { "id": "x3", "from": "engine", "to": "bb", "label": "on_bar()", "labelDy": 16 },
+    { "id": "x4", "from": "sr", "to": "ind_ema", "label": "calc", "labelDy": -16 },
+    { "id": "x5", "from": "sr", "to": "ind_rsi", "label": "calc" },
+    { "id": "x6", "from": "sr", "to": "ind_adx", "label": "calc" },
+    { "id": "x7", "from": "sr", "to": "ind_atr", "label": "calc", "labelDy": 16 },
+    { "id": "x8", "from": "bb", "to": "ind_ema", "label": "calc", "labelDy": 16 },
+    { "id": "x9", "from": "ind_ema", "to": "f_dist", "label": "" },
+    { "id": "x10", "from": "ind_adx", "to": "f_adx", "label": "" },
+    { "id": "x11", "from": "ind_adx", "to": "f_di", "label": "" },
+    { "id": "x12", "from": "ind_rsi", "to": "f_rsi", "label": "" },
+    { "id": "x13", "from": "ind_atr", "to": "f_vol", "label": "" },
+    { "id": "x14", "from": "sr", "to": "signal", "label": "通过 → Signal", "variant": "emphasis", "fromSide": "bottom", "toSide": "right", "labelAt": [530, 250] },
+    { "id": "x15", "from": "bb", "to": "signal", "label": "通过 → Signal", "fromSide": "bottom", "toSide": "right", "labelAt": [530, 320] },
+    { "id": "x16", "from": "signal", "to": "risk", "label": "Signal", "variant": "security", "labelAt": [410, 450] },
+    { "id": "x17", "from": "risk", "to": "paper", "label": "approved + 杠杆" },
+    { "id": "x18", "from": "engine", "to": "db_signals", "label": "signals 写入", "route": "orthogonal-h", "via": [[260, 108], [260, 408]], "labelAt": [180, 260] },
+    { "id": "x19", "from": "sr", "to": "db_filter", "label": "filter_stats", "route": "orthogonal-h", "via": [[560, 108], [560, 320], [220, 320], [220, 488]], "labelAt": [380, 340] },
+    { "id": "x20", "from": "paper", "to": "db_orders", "label": "orders", "labelAt": [380, 580] },
+    { "id": "x21", "from": "paper", "to": "db_positions", "label": "positions", "labelAt": [380, 660] },
+    { "id": "x22", "from": "paper", "to": "db_entries", "label": "entries", "labelAt": [380, 740] },
+    { "id": "x23", "from": "paper", "to": "db_closures", "label": "closures (FIFO)", "labelAt": [380, 820] },
+    { "id": "x24", "from": "query", "to": "db_entries", "label": "JOIN", "variant": "dashed" },
+    { "id": "x25", "from": "query", "to": "db_closures", "label": "归因 PNL", "variant": "dashed" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "处理流程",
+      "items": [
+        "Engine 收 closed → on_bar() 调用策略",
+        "策略：识别 S/R 位 + 多周期趋势",
+        "多维过滤：11 个独立检查层",
+        "通过则生成 Signal 进入风控"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "技术指标 (TA-Lib / numpy)",
+      "items": [
+        "EMA(21/50)：趋势方向 + 价格位置",
+        "RSI(14)：动量过滤（主/逆势不同区间）",
+        "ADX(14) + DI：趋势强度 + 方向确认",
+        "ATR(14)：动态止损 + 加仓缓冲",
+        "MACD / Bollinger Bands 辅助"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "11 层过滤 (S/R 策略)",
+      "items": [
+        "距离过滤：price vs S/R (%)",
+        "ADX 分级：高质量位阈值放宽",
+        "+DI/-DI 方向：主方向严格",
+        "质量分门槛：逆势 ≥ 5.0",
+        "价格 vs EMA21 位置",
+        "RSI 动量：主/副不同阈值",
+        "成交量爆发：1.8x 主 / 1.6x 副",
+        "拒绝蜡烛：wick/body 比例",
+        "回踩确认：Retest",
+        "Funding Rate：硬阻断 + 软扣分",
+        "加仓控制：次数上限 + 价格优于持仓"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "风控 7 项 (RiskManager)",
+      "items": [
+        "杠杆上限（主流币/山寨币分类）",
+        "止损距离上限（仓位价值 %）",
+        "自动降杠杆（杠杆亏损 > 阈值）",
+        "单笔最大亏损（保证金 %）",
+        "日累计亏损限制",
+        "最大同时持仓数",
+        "单币种仓位占比"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "数据落地与归因",
+      "items": [
+        "signals：每条信号写入（含 action）",
+        "filter_stats：每周期的过滤拦截统计",
+        "orders：成交流水（含手续费）",
+        "positions：持仓汇总（加权入场价）",
+        "position_entries：入场明细（按 seq）",
+        "position_entry_closures：FIFO 归因",
+        "QueryServer /attribution：JOIN 查询归因 PNL"
+      ]
+    }
+  ]
+}

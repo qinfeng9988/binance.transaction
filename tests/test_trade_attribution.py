@@ -32,7 +32,7 @@ def create_mock_data_store() -> MagicMock:
 
     # 模拟 open_position 返回递增的 position_id
     ds._next_position_id = 1
-    def mock_open_position(position_record):
+    def mock_open_position(position_record, total_fee=0.0):
         pid = ds._next_position_id
         ds._next_position_id += 1
         return pid
@@ -117,12 +117,14 @@ class TestOpenThenStopLoss:
         assert closure.close_qty == pytest.approx(0.1)
         assert closure.entry_price == pytest.approx(60000)
         assert closure.exit_price == pytest.approx(59000)
-        assert closure.reason == "stop_loss_close"
+        assert closure.reason == "STOP_LOSS"
+        assert closure.trigger_reason == "stop_loss"
         assert closure.signal_id is None  # 止损无信号
 
-        # 验证：归因盈亏 = (59000 - 60000) * 0.1 - fee
-        fee = 59000 * 0.1 * 0.0004  # 合约手续费率
-        expected_pnl = (59000 - 60000) * 0.1 - fee
+        # 验证：归因盈亏 = (59000 - 60000) * 0.1 - 平仓手续费 - 入场手续费
+        fee = 59000 * 0.1 * 0.0004  # 平仓手续费
+        entry_fee = 60000 * 0.1 * 0.0004  # 入场手续费全额分摊
+        expected_pnl = (59000 - 60000) * 0.1 - fee - entry_fee
         assert closure.pnl == pytest.approx(expected_pnl, abs=0.01)
         assert closure.fee == pytest.approx(fee, abs=0.01)
 
@@ -193,10 +195,11 @@ class TestOpenAddThenClose:
         assert c2.entry_price == pytest.approx(62000)
         assert c2.exit_price == pytest.approx(64000)
 
-        # 验证：归因盈亏之和 = 总盈亏
+        # 验证：归因盈亏之和 = 总盈亏（归因口径扣双端手续费）
         total_fee = 64000 * 0.2 * 0.0004
+        entry_fees = 60000 * 0.1 * 0.0004 + 62000 * 0.1 * 0.0004
         total_raw_pnl = (64000 - 60000) * 0.1 + (64000 - 62000) * 0.1
-        total_net_pnl = total_raw_pnl - total_fee
+        total_net_pnl = total_raw_pnl - total_fee - entry_fees
         assert (c1.pnl + c2.pnl) == pytest.approx(total_net_pnl, abs=0.01)
 
         # 验证：手续费分摊之和 = 总手续费
@@ -233,11 +236,13 @@ class TestOpenAddThenClose:
         # signal #102 的入场价更高，止损亏损更大
         assert c1.pnl > c2.pnl  # entry1@60000 亏得少，entry2@62000 亏得多
 
-        # 验证具体数值
+        # 验证具体数值（归因 pnl 扣平仓手续费分摊 + 入场手续费全额分摊）
         total_fee = 59000 * 0.2 * 0.0004
         fee_per_entry = total_fee / 2  # 数量相同，手续费均摊
-        expected_pnl1 = (59000 - 60000) * 0.1 - fee_per_entry
-        expected_pnl2 = (59000 - 62000) * 0.1 - fee_per_entry
+        entry_fee1 = 60000 * 0.1 * 0.0004
+        entry_fee2 = 62000 * 0.1 * 0.0004
+        expected_pnl1 = (59000 - 60000) * 0.1 - fee_per_entry - entry_fee1
+        expected_pnl2 = (59000 - 62000) * 0.1 - fee_per_entry - entry_fee2
         assert c1.pnl == pytest.approx(expected_pnl1, abs=0.01)
         assert c2.pnl == pytest.approx(expected_pnl2, abs=0.01)
 
@@ -270,7 +275,7 @@ class TestPartialCloseAcrossEntries:
         # FIFO: 先扣 entry#1 全部 0.1，再扣 entry#2 的 0.02
         net_pnl = engine.partial_close_position(
             "BTC/USDT", close_price=64000, close_ratio=0.6,
-            data_store=ds, signal_id=201,
+            data_store=ds, signal_id=201, partial_tp_level="2.0R",
         )
 
         # 验证：2 条 closures
@@ -283,14 +288,16 @@ class TestPartialCloseAcrossEntries:
         assert c1.close_qty == pytest.approx(0.1)
         assert c1.entry_price == pytest.approx(60000)
         assert c1.exit_price == pytest.approx(64000)
-        assert c1.reason == "partial_close"
+        assert c1.reason == "CLOSE_PARTIAL"
+        assert c1.trigger_reason == "2.0R"
 
         # closure #2: entry#2 部分扣 0.02@62000→64000
         assert c2.entry_id == 2
         assert c2.close_qty == pytest.approx(0.02)
         assert c2.entry_price == pytest.approx(62000)
         assert c2.exit_price == pytest.approx(64000)
-        assert c2.reason == "partial_close"
+        assert c2.reason == "CLOSE_PARTIAL"
+        assert c2.trigger_reason == "2.0R"
 
         # 验证：entry#1 已关闭，entry#2 仍 open
         update_calls = ds.update_entry.call_args_list
@@ -349,17 +356,19 @@ class TestPartialCloseAcrossEntries:
         assert c3.close_qty == pytest.approx(0.08)
         assert c3.entry_price == pytest.approx(62000)
         assert c3.exit_price == pytest.approx(58000)
-        assert c3.reason == "stop_loss_close"
+        assert c3.reason == "STOP_LOSS"
+        assert c3.trigger_reason == "stop_loss"
         assert c3.signal_id is None
 
-        # 验证：entry#2 的归因盈亏 = 部分平仓盈亏 + 止损盈亏
+        # 验证：entry#2 的归因盈亏 = 部分平仓盈亏 + 止损盈亏（归因口径扣双端手续费）
         c2 = ds.insert_closure.call_args_list[1][0][0]
         entry2_total_pnl = c2.pnl + c3.pnl
         # entry#2 总共 0.1@62000，部分平 0.02@64000 + 止损 0.08@58000
         expected = (64000 - 62000) * 0.02 + (58000 - 62000) * 0.08
-        # 减去手续费
+        # 减去手续费（平仓分摊）+ entry#2 全部入场手续费（0.02+0.08=0.1 全部平完）
         total_fee_entry2 = c2.fee + c3.fee
-        expected_net = expected - total_fee_entry2
+        entry2_entry_fee = 62000 * 0.1 * 0.0004
+        expected_net = expected - total_fee_entry2 - entry2_entry_fee
         assert entry2_total_pnl == pytest.approx(expected_net, abs=0.01)
 
 
@@ -504,10 +513,15 @@ class TestPnLConsistency:
             c[0][0].pnl for c in ds.insert_closure.call_args_list
         )
 
-        # 实际总盈亏
+        # 实际总盈亏（引擎返回值 = 毛利 - 平仓手续费）
         total_realized_pnl = partial_pnl + stop_pnl
 
-        assert total_attribution_pnl == pytest.approx(total_realized_pnl, abs=0.01)
+        # 一致性恒等式：归因 pnl 额外扣了入场手续费分摊
+        # 归因之和 + 入场手续费总和 = 引擎实现盈亏之和（全部平仓时）
+        total_entry_fees = 60000 * 0.1 * 0.0004 + 62000 * 0.1 * 0.0004
+        assert total_attribution_pnl + total_entry_fees == pytest.approx(
+            total_realized_pnl, abs=0.01,
+        )
 
     def test_sell_side_attribution(self):
         """做空场景的归因验证。"""
@@ -540,15 +554,18 @@ class TestPnLConsistency:
         # 做空盈亏 = (entry_price - exit_price) * qty
         # entry#1: (60000 - 56000) * 0.1 = +400
         # entry#2: (58000 - 56000) * 0.1 = +200
+        # 归因 pnl 扣平仓手续费分摊 + 入场手续费全额分摊
         total_fee = 56000 * 0.2 * 0.0004
-        expected_pnl1 = (60000 - 56000) * 0.1 - total_fee * (0.1 / 0.2)
-        expected_pnl2 = (58000 - 56000) * 0.1 - total_fee * (0.1 / 0.2)
+        entry_fee1 = 60000 * 0.1 * 0.0004
+        entry_fee2 = 58000 * 0.1 * 0.0004
+        expected_pnl1 = (60000 - 56000) * 0.1 - total_fee * (0.1 / 0.2) - entry_fee1
+        expected_pnl2 = (58000 - 56000) * 0.1 - total_fee * (0.1 / 0.2) - entry_fee2
 
         assert c1.pnl == pytest.approx(expected_pnl1, abs=0.01)
         assert c2.pnl == pytest.approx(expected_pnl2, abs=0.01)
 
-        # 归因盈亏之和 = 总盈亏
-        assert (c1.pnl + c2.pnl) == pytest.approx(pnl, abs=0.01)
+        # 归因之和 + 入场手续费总和 = 引擎返回盈亏（毛利 - 平仓手续费）
+        assert (c1.pnl + c2.pnl) + entry_fee1 + entry_fee2 == pytest.approx(pnl, abs=0.01)
 
 
 # ============================================================
@@ -574,7 +591,8 @@ class TestStopLossTrigger:
         # 验证：止损触发了归因
         assert ds.insert_closure.call_count == 1
         closure = ds.insert_closure.call_args[0][0]
-        assert closure.reason == "stop_loss_close"
+        assert closure.reason == "STOP_LOSS"
+        assert closure.trigger_reason == "stop_loss"
         assert closure.signal_id is None
         assert closure.exit_price == pytest.approx(58999)
 
@@ -691,3 +709,145 @@ class TestEntrySeqCounter:
             metadata={"max_additions": 2},
         )
         assert engine.positions["BTC/USDT"].entry_seq_counter == 3
+
+
+# ============================================================
+# 场景 10：reason 枚举 + trigger_reason 传播（方案 C）
+# ============================================================
+
+class TestReasonEnumAndTrigger:
+    """验证 reason 枚举（事件类型）与 trigger_reason（触发原因）分离。"""
+
+    def test_close_signal_maps_to_close_full(self):
+        """order_type='close' → reason='CLOSE_FULL'，trigger_reason 透传。"""
+        engine = create_engine()
+        ds = create_mock_data_store()
+
+        engine.place_order(
+            symbol="BTC/USDT", side="buy", amount=0.1, price=60000,
+            leverage=1, stop_loss=59000, data_store=ds, signal_id=101,
+        )
+        engine.close_position(
+            "BTC/USDT", exit_price=61000, data_store=ds,
+            order_type="close", signal_id=201,
+            trigger_reason="ema_cross_down",
+        )
+
+        closure = ds.insert_closure.call_args[0][0]
+        assert closure.reason == "CLOSE_FULL"
+        assert closure.trigger_reason == "ema_cross_down"
+
+    def test_close_default_trigger_is_signal_close(self):
+        """不传 trigger_reason 时默认 'signal_close'。"""
+        engine = create_engine()
+        ds = create_mock_data_store()
+
+        engine.place_order(
+            symbol="BTC/USDT", side="buy", amount=0.1, price=60000,
+            leverage=1, stop_loss=59000, data_store=ds, signal_id=101,
+        )
+        engine.close_position(
+            "BTC/USDT", exit_price=61000, data_store=ds,
+            order_type="close", signal_id=201,
+        )
+
+        closure = ds.insert_closure.call_args[0][0]
+        assert closure.reason == "CLOSE_FULL"
+        assert closure.trigger_reason == "signal_close"
+
+    def test_take_profit_close_maps_to_close_full(self):
+        """order_type='take_profit_close' → reason='CLOSE_FULL'。"""
+        engine = create_engine()
+        ds = create_mock_data_store()
+
+        engine.place_order(
+            symbol="BTC/USDT", side="buy", amount=0.1, price=60000,
+            leverage=1, stop_loss=59000, data_store=ds, signal_id=101,
+        )
+        engine.close_position(
+            "BTC/USDT", exit_price=62000, data_store=ds,
+            order_type="take_profit_close", signal_id=201,
+            trigger_reason="take_profit",
+        )
+
+        closure = ds.insert_closure.call_args[0][0]
+        assert closure.reason == "CLOSE_FULL"
+        assert closure.trigger_reason == "take_profit"
+
+    def test_end_of_data_maps_to_end_of_data(self):
+        """order_type='end_of_data' → reason='END_OF_DATA'（回测结束强平）。"""
+        engine = create_engine()
+        ds = create_mock_data_store()
+
+        engine.place_order(
+            symbol="BTC/USDT", side="buy", amount=0.1, price=60000,
+            leverage=1, stop_loss=59000, data_store=ds, signal_id=101,
+        )
+        engine.close_position(
+            "BTC/USDT", exit_price=60500, data_store=ds,
+            order_type="end_of_data", signal_id=None,
+            trigger_reason="end_of_backtest",
+        )
+
+        closure = ds.insert_closure.call_args[0][0]
+        assert closure.reason == "END_OF_DATA"
+        assert closure.trigger_reason == "end_of_backtest"
+
+    def test_reverse_signal_close_gets_reverse_trigger(self):
+        """持多仓收到反向卖单 → close，trigger_reason='reverse_signal'。"""
+        engine = create_engine()
+        ds = create_mock_data_store()
+
+        engine.place_order(
+            symbol="BTC/USDT", side="buy", amount=0.1, price=60000,
+            leverage=1, stop_loss=59000, data_store=ds, signal_id=101,
+        )
+        assert ds.insert_closure.call_count == 0
+
+        # 反向信号：持 buy 收 sell（order_type 提示 close）
+        engine.place_order(
+            symbol="BTC/USDT", side="sell", amount=0.1, price=61000,
+            leverage=1, stop_loss=0, data_store=ds, signal_id=201,
+            order_type="close",
+        )
+
+        # 反向平仓产生了 closure
+        assert ds.insert_closure.call_count == 1
+        closure = ds.insert_closure.call_args[0][0]
+        assert closure.reason == "CLOSE_FULL"
+        assert closure.trigger_reason == "reverse_signal"
+
+    def test_stop_loss_close_maps_to_stop_loss_enum(self):
+        """order_type='stop_loss_close' → reason='STOP_LOSS'。"""
+        engine = create_engine()
+        ds = create_mock_data_store()
+
+        engine.place_order(
+            symbol="BTC/USDT", side="buy", amount=0.1, price=60000,
+            leverage=1, stop_loss=59000, data_store=ds, signal_id=101,
+        )
+        engine.close_position(
+            "BTC/USDT", exit_price=58999, data_store=ds,
+            order_type="stop_loss_close", signal_id=None,
+        )
+
+        closure = ds.insert_closure.call_args[0][0]
+        assert closure.reason == "STOP_LOSS"
+
+    def test_partial_close_without_level_has_null_trigger(self):
+        """partial_close 未传 tp_level → trigger_reason=None。"""
+        engine = create_engine()
+        ds = create_mock_data_store()
+
+        engine.place_order(
+            symbol="BTC/USDT", side="buy", amount=0.1, price=60000,
+            leverage=1, stop_loss=59000, data_store=ds, signal_id=101,
+        )
+        engine.partial_close_position(
+            "BTC/USDT", close_price=61000, close_ratio=0.5,
+            data_store=ds, signal_id=201,
+        )
+
+        closure = ds.insert_closure.call_args[0][0]
+        assert closure.reason == "CLOSE_PARTIAL"
+        assert closure.trigger_reason is None
