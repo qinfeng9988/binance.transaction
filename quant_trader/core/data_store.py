@@ -62,6 +62,18 @@ class SignalRecord:
     stop_loss: float
     timestamp: datetime
     leverage: int = 1
+    quality_score: float | None = None
+    adx: float | None = None
+    plus_di: float | None = None
+    minus_di: float | None = None
+    rsi: float | None = None
+    volume_ratio: float | None = None
+    parent_trend: str | None = None
+    direction_type: str | None = None
+    is_counter_trend: bool | None = None
+    atr: float | None = None
+    entry_threshold_pct: float | None = None
+    distance_pct: float | None = None
 
     def __post_init__(self):
         self.price = float(self.price)
@@ -109,6 +121,7 @@ class EntryRecord:
     orig_qty: float
     remaining_qty: float
     entry_price: float
+    entry_time: datetime
     entry_fee: float = 0.0
     order_id: str | None = None
     signal_id: int | None = None
@@ -144,6 +157,7 @@ class ClosureRecord:
     pnl: float
     fee: float
     reason: str
+    close_time: datetime
     trigger_reason: str | None = None
     order_id: str | None = None
     signal_id: int | None = None
@@ -204,6 +218,18 @@ CREATE TABLE IF NOT EXISTS signals (
     stop_loss NUMERIC(20,8),                        -- 建议止损价
     timestamp TIMESTAMPTZ NOT NULL,                 -- 信号产生时间（带时区）
     leverage INTEGER DEFAULT 1,                     -- 建议杠杆倍数，1 表示无杠杆（现货）
+    quality_score NUMERIC(10,2),                    -- 信号最终质量评分
+    adx NUMERIC(10,2),                              -- 信号生成时 ADX 值
+    plus_di NUMERIC(10,2),                          -- 信号生成时 +DI 值
+    minus_di NUMERIC(10,2),                         -- 信号生成时 -DI 值
+    rsi NUMERIC(10,2),                              -- 信号生成时 RSI 值
+    volume_ratio NUMERIC(10,2),                     -- 成交量比率
+    parent_trend VARCHAR(20),                       -- 上级周期趋势方向
+    direction_type VARCHAR(20),                     -- 信号方向类型：main=顺势, secondary=逆势
+    is_counter_trend BOOLEAN,                       -- 是否逆势信号
+    atr NUMERIC(20,8),                              -- 信号生成时 ATR 值
+    entry_threshold_pct NUMERIC(10,4),              -- 当次实际生效的入场距离阈值
+    distance_pct NUMERIC(10,4),                     -- 实际入场距离 S/R 位的百分比
     create_time TIMESTAMPTZ NOT NULL DEFAULT NOW(), -- 首次写入时间
     update_time TIMESTAMPTZ NOT NULL DEFAULT NOW()  -- 最后更新时间
 );
@@ -294,6 +320,7 @@ CREATE TABLE IF NOT EXISTS position_entries (
     orig_qty NUMERIC(20,8) NOT NULL,                -- 原始入场数量（不变）
     remaining_qty NUMERIC(20,8) NOT NULL,            -- 剩余未平数量（每次平仓递减）
     entry_price NUMERIC(20,8) NOT NULL,              -- 本笔入场价格（不变）
+    entry_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),   -- 入场业务时间（K线收盘时间）
     entry_fee NUMERIC(20,8) NOT NULL DEFAULT 0,      -- 本笔入场手续费（USDT）
     order_id VARCHAR(50),                            -- 关联订单编号
     signal_id INTEGER REFERENCES signals(id) ON DELETE SET NULL,
@@ -326,7 +353,9 @@ CREATE TABLE IF NOT EXISTS position_entry_closures (
     trigger_reason VARCHAR(40),                      -- 策略触发原因: "2.0R" / "ema_cross_down" / "reverse_signal" / "stop_loss" 等
     order_id VARCHAR(50),                            -- 关联订单编号
     signal_id INTEGER REFERENCES signals(id) ON DELETE SET NULL,
-    close_time TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    close_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    create_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    update_time TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 COMMENT ON TABLE position_entry_closures IS '出场明细表，每笔平仓按 FIFO 扣减 entries 生成，同一 entry 可有多条 closure';
@@ -499,6 +528,45 @@ class DataStore:
             cur.execute("CREATE INDEX IF NOT EXISTS idx_closures_order ON position_entry_closures(order_id)")
             logger.info("迁移: position_entry_closures 新增 order_id 字段")
 
+        # 迁移: signals 表新增 12 个指标字段
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'signals' AND column_name = 'quality_score'
+        """)
+        if not cur.fetchone():
+            cur.execute("ALTER TABLE signals ADD COLUMN quality_score NUMERIC(10,2)")
+            cur.execute("ALTER TABLE signals ADD COLUMN adx NUMERIC(10,2)")
+            cur.execute("ALTER TABLE signals ADD COLUMN plus_di NUMERIC(10,2)")
+            cur.execute("ALTER TABLE signals ADD COLUMN minus_di NUMERIC(10,2)")
+            cur.execute("ALTER TABLE signals ADD COLUMN rsi NUMERIC(10,2)")
+            cur.execute("ALTER TABLE signals ADD COLUMN volume_ratio NUMERIC(10,2)")
+            cur.execute("ALTER TABLE signals ADD COLUMN parent_trend VARCHAR(20)")
+            cur.execute("ALTER TABLE signals ADD COLUMN direction_type VARCHAR(20)")
+            cur.execute("ALTER TABLE signals ADD COLUMN is_counter_trend BOOLEAN")
+            cur.execute("ALTER TABLE signals ADD COLUMN atr NUMERIC(20,8)")
+            cur.execute("ALTER TABLE signals ADD COLUMN entry_threshold_pct NUMERIC(10,4)")
+            cur.execute("ALTER TABLE signals ADD COLUMN distance_pct NUMERIC(10,4)")
+            logger.info("迁移: signals 新增 12 个指标字段")
+
+        # 迁移: position_entries 新增 entry_time
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'position_entries' AND column_name = 'entry_time'
+        """)
+        if not cur.fetchone():
+            cur.execute("ALTER TABLE position_entries ADD COLUMN entry_time TIMESTAMPTZ NOT NULL DEFAULT NOW()")
+            logger.info("迁移: position_entries 新增 entry_time 字段")
+
+        # 迁移: position_entry_closures 新增 create_time/update_time
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'position_entry_closures' AND column_name = 'create_time'
+        """)
+        if not cur.fetchone():
+            cur.execute("ALTER TABLE position_entry_closures ADD COLUMN create_time TIMESTAMPTZ NOT NULL DEFAULT NOW()")
+            cur.execute("ALTER TABLE position_entry_closures ADD COLUMN update_time TIMESTAMPTZ NOT NULL DEFAULT NOW()")
+            logger.info("迁移: position_entry_closures 新增 create_time、update_time 字段")
+
         # 检查 position_entry_closures 是否缺少 trigger_reason（reason 语义重构）
         cur.execute("""
             SELECT column_name FROM information_schema.columns
@@ -632,12 +700,20 @@ class DataStore:
         with self._get_conn().cursor() as cur:
             cur.execute(
                 """INSERT INTO signals (strategy_name, symbol, timeframe, signal_type,
-                                        price, stop_loss, timestamp, leverage)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                                        price, stop_loss, timestamp, leverage,
+                                        quality_score, adx, plus_di, minus_di, rsi,
+                                        volume_ratio, parent_trend, direction_type,
+                                        is_counter_trend, atr, entry_threshold_pct, distance_pct)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s,
+                           %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
                 (signal.strategy_name, signal.symbol, signal.timeframe,
                  signal.signal_type, signal.price, signal.stop_loss,
-                 signal.timestamp, signal.leverage),
+                 signal.timestamp, signal.leverage,
+                 signal.quality_score, signal.adx, signal.plus_di, signal.minus_di,
+                 signal.rsi, signal.volume_ratio, signal.parent_trend,
+                 signal.direction_type, signal.is_counter_trend,
+                 signal.atr, signal.entry_threshold_pct, signal.distance_pct),
             )
             return cur.fetchone()[0]
 
@@ -714,25 +790,27 @@ class DataStore:
 
     def close_position(self, position_id: int, exit_price: float,
                        closed_quantity: float, pnl: float, close_count: int,
-                       total_fee: float = None):
+                       total_fee: float = None, exit_time=None):
         """全平记录。更新 quantity=0, exit_price, exit_time, 累加 pnl 和 total_fee, 设 status='closed'。"""
+        if exit_time is None:
+            exit_time = datetime.now(tz=timezone.utc)
         with self._get_conn().cursor() as cur:
             if total_fee is not None:
                 cur.execute(
                     """UPDATE positions
-                       SET exit_price = %s, exit_time = NOW(), quantity = 0,
+                       SET exit_price = %s, exit_time = %s, quantity = 0,
                            closed_quantity = %s, pnl = %s, close_count = %s,
                            total_fee = total_fee + %s, status = 'closed'
                        WHERE id = %s""",
-                    (exit_price, closed_quantity, pnl, close_count, total_fee, position_id),
+                    (exit_price, exit_time, closed_quantity, pnl, close_count, total_fee, position_id),
                 )
             else:
                 cur.execute(
                     """UPDATE positions
-                       SET exit_price = %s, exit_time = NOW(), quantity = 0,
+                       SET exit_price = %s, exit_time = %s, quantity = 0,
                            closed_quantity = %s, pnl = %s, close_count = %s, status = 'closed'
                        WHERE id = %s""",
-                    (exit_price, closed_quantity, pnl, close_count, position_id),
+                    (exit_price, exit_time, closed_quantity, pnl, close_count, position_id),
                 )
 
     def get_open_positions(self) -> list[PositionRecord]:
@@ -817,11 +895,12 @@ class DataStore:
             cur.execute(
                 """INSERT INTO position_entries
                        (position_id, seq, orig_qty, remaining_qty, entry_price,
-                        entry_fee, order_id, signal_id, status)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        entry_time, entry_fee, order_id, signal_id, status)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
                 (entry.position_id, entry.seq, entry.orig_qty, entry.remaining_qty,
-                 entry.entry_price, entry.entry_fee, entry.order_id,
+                 entry.entry_price, entry.entry_time,
+                 entry.entry_fee, entry.order_id,
                  entry.signal_id, entry.status),
             )
             return cur.fetchone()[0]
@@ -841,7 +920,7 @@ class DataStore:
         with self._get_conn().cursor() as cur:
             cur.execute(
                 """SELECT id, position_id, seq, orig_qty, remaining_qty,
-                          entry_price, entry_fee, order_id, signal_id, status
+                          entry_price, entry_time, entry_fee, order_id, signal_id, status
                    FROM position_entries
                    WHERE position_id = %s AND status = 'open'
                    ORDER BY seq ASC""",
@@ -852,8 +931,9 @@ class DataStore:
             EntryRecord(
                 id=r[0], position_id=r[1], seq=r[2],
                 orig_qty=float(r[3]), remaining_qty=float(r[4]),
-                entry_price=float(r[5]), entry_fee=float(r[6]),
-                order_id=r[7], signal_id=r[8], status=r[9],
+                entry_price=float(r[5]), entry_time=r[6],
+                entry_fee=float(r[7]),
+                order_id=r[8], signal_id=r[9], status=r[10],
             )
             for r in rows
         ]
@@ -866,13 +946,13 @@ class DataStore:
             cur.execute(
                 """INSERT INTO position_entry_closures
                        (entry_id, close_qty, entry_price, exit_price,
-                        pnl, fee, reason, trigger_reason, order_id, signal_id)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        pnl, fee, reason, trigger_reason, order_id, signal_id, close_time)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
                 (closure.entry_id, closure.close_qty, closure.entry_price,
                  closure.exit_price, closure.pnl, closure.fee,
                  closure.reason, closure.trigger_reason,
-                 closure.order_id, closure.signal_id),
+                 closure.order_id, closure.signal_id, closure.close_time),
             )
             return cur.fetchone()[0]
 

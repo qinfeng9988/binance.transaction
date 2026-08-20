@@ -114,7 +114,8 @@
       "Bash(PGPASSWORD=123456 psql -h localhost -U postgres -d db_backtest -c \"SELECT symbol, timeframe, COUNT\\(*\\) FROM klines GROUP BY symbol, timeframe ORDER BY 1, 2;\")",
       "Bash(date -v-7d +\"%Y-%m-%d\")",
       "Bash(PGPASSWORD=123456 psql -h localhost -U postgres -d db_backtest -c \"SELECT MIN\\(timestamp\\), MAX\\(timestamp\\), COUNT\\(*\\) FROM klines WHERE symbol='SOL/USDT' AND timeframe='5m';\")",
-      "Bash(PGPASSWORD=123456 psql *)"
+      "Bash(PGPASSWORD=123456 psql *)",
+      "Bash(env)"
     ]
   }
 }

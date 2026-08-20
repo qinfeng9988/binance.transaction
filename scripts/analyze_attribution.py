@@ -43,6 +43,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                       help="查询最近一次回测的归因")
     mode.add_argument("--compare", nargs="+", metavar="RUN_ID",
                       help="对比多个 run_id 的归因指标")
+    parser.add_argument("--bucket", nargs="*", metavar="METRIC",
+                        help="按指标分桶统计归因（quality_score/direction_type/is_counter_trend/adx），"
+                             "不传则默认输出所有可分桶维度")
     return parser.parse_args(argv)
 
 
@@ -179,8 +182,48 @@ def print_compare_table(rows: list[dict]):
 
 
 # ============================================================
-# 主函数
+# 指标分桶统计
 # ============================================================
+
+METRIC_BUCKETS = {
+    "quality_score": [
+        ("<3", 0, 3), ("3-5", 3, 5), ("5-7", 5, 7), ("7+", 7, None),
+    ],
+    "adx": [
+        ("<20", 0, 20), ("20-30", 20, 30), ("30+", 30, None),
+    ],
+    "direction_type": [
+        ("main", "main", "main"), ("secondary", "secondary", "secondary"),
+    ],
+    "is_counter_trend": [
+        ("顺势", False, False), ("逆势", True, True),
+    ],
+}
+
+
+def print_metrics_buckets(store: BacktestDataStore, metrics: list[str] | None = None):
+    """打印指标分桶统计。"""
+    if metrics is None:
+        metrics = list(METRIC_BUCKETS.keys())
+
+    for metric in metrics:
+        if metric not in METRIC_BUCKETS:
+            print(f"  未知分桶指标: {metric}（可选: {', '.join(METRIC_BUCKETS.keys())}）")
+            continue
+
+        buckets = METRIC_BUCKETS[metric]
+        results = store.get_attribution_by_metrics_bucket(metric, buckets)
+
+        print(f"\n── 按 {metric} 分桶 ──────────────────────────")
+        print(f"  {'区间':<14} {'笔数':<6} {'总PNL':>12} {'平均PNL':>12} {'胜率%':>8}")
+        print("  " + "-" * 60)
+        for row in results:
+            print(f"  {row['bucket']:<14} {row['count']:<6} "
+                  f"{float(row['total_pnl']):>+12.2f} "
+                  f"{float(row['avg_pnl']):>+12.2f} "
+                  f"{float(row['win_rate']):>7.1f}%")
+
+    print()
 
 def main_logic(args, store: BacktestDataStore) -> int:
     """主逻辑（与 IO 解耦，便于测试）。"""
@@ -192,6 +235,7 @@ def main_logic(args, store: BacktestDataStore) -> int:
         print(f"最近一次回测 run_id: {run_id}")
         store.run_id = run_id  # 切换到目标 run_id
         print_attribution_detail(store, run_id)
+        print_metrics_buckets(store, args.bucket if args.bucket else None)
         return 0
 
     if args.compare:
@@ -202,6 +246,7 @@ def main_logic(args, store: BacktestDataStore) -> int:
     # --run-id 模式
     store.run_id = args.run_id
     print_attribution_detail(store, args.run_id)
+    print_metrics_buckets(store, args.bucket if args.bucket else None)
     return 0
 
 

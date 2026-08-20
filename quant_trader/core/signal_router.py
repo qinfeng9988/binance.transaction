@@ -86,6 +86,18 @@ def handle_signal(
         stop_loss=signal.stop_loss,
         timestamp=signal.timestamp,
         leverage=signal.leverage,
+        quality_score=signal.quality_score,
+        adx=signal.adx,
+        plus_di=signal.plus_di,
+        minus_di=signal.minus_di,
+        rsi=signal.rsi,
+        volume_ratio=signal.volume_ratio,
+        parent_trend=signal.parent_trend,
+        direction_type=signal.direction_type,
+        is_counter_trend=signal.is_counter_trend,
+        atr=signal.atr,
+        entry_threshold_pct=signal.entry_threshold_pct,
+        distance_pct=signal.distance_pct,
     ))
 
     # ============ update_stop ============

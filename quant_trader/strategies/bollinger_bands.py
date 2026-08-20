@@ -98,6 +98,7 @@ class BollingerBandsStrategy(BaseStrategy):
                 signals.append(Signal(
                     strategy_name=self.name, symbol=symbol, timeframe=timeframe,
                     signal_type="buy", price=current_price, stop_loss=stop_loss, leverage=leverage,
+                    rsi=round(current_rsi, 2), atr=round(current_atr, 8),
                     metadata={"fast": current_fast, "slow": current_slow, "rsi": current_rsi, "atr": current_atr},
                 ))
                 logger.info("EMA金叉做多 %s %s: 价格=%.2f, EMA%d=%.2f, EMA%d=%.2f, RSI=%.1f",
@@ -109,6 +110,7 @@ class BollingerBandsStrategy(BaseStrategy):
                 signals.append(Signal(
                     strategy_name=self.name, symbol=symbol, timeframe=timeframe,
                     signal_type="sell", price=current_price, stop_loss=stop_loss, leverage=leverage,
+                    rsi=round(current_rsi, 2), atr=round(current_atr, 8),
                     metadata={"fast": current_fast, "slow": current_slow, "rsi": current_rsi, "atr": current_atr},
                 ))
                 logger.info("EMA死叉做空 %s %s: 价格=%.2f, EMA%d=%.2f, EMA%d=%.2f, RSI=%.1f",

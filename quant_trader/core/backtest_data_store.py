@@ -184,14 +184,22 @@ class BacktestDataStore(DataStore):
         with self._get_conn().cursor() as cur:
             cur.execute(
                 """INSERT INTO signals (run_id, strategy_name, symbol, timeframe,
-                                        signal_type, price, stop_loss, timestamp, leverage)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                        signal_type, price, stop_loss, timestamp, leverage,
+                                        quality_score, adx, plus_di, minus_di, rsi,
+                                        volume_ratio, parent_trend, direction_type,
+                                        is_counter_trend, atr, entry_threshold_pct, distance_pct)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
+                           %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
                 (
                     self.run_id,
                     signal.strategy_name, signal.symbol, signal.timeframe,
                     signal.signal_type, signal.price, signal.stop_loss,
                     signal.timestamp, signal.leverage,
+                    signal.quality_score, signal.adx, signal.plus_di, signal.minus_di,
+                    signal.rsi, signal.volume_ratio, signal.parent_trend,
+                    signal.direction_type, signal.is_counter_trend,
+                    signal.atr, signal.entry_threshold_pct, signal.distance_pct,
                 ),
             )
             return cur.fetchone()[0]
@@ -206,13 +214,13 @@ class BacktestDataStore(DataStore):
             cur.execute(
                 """INSERT INTO position_entries
                        (run_id, position_id, seq, orig_qty, remaining_qty, entry_price,
-                        entry_fee, order_id, signal_id, status)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        entry_time, entry_fee, order_id, signal_id, status)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
                 (
                     self.run_id,
                     entry.position_id, entry.seq, entry.orig_qty, entry.remaining_qty,
-                    entry.entry_price, entry.entry_fee, entry.order_id,
+                    entry.entry_price, entry.entry_time, entry.entry_fee, entry.order_id,
                     entry.signal_id, entry.status,
                 ),
             )
@@ -224,15 +232,15 @@ class BacktestDataStore(DataStore):
             cur.execute(
                 """INSERT INTO position_entry_closures
                        (run_id, entry_id, close_qty, entry_price, exit_price,
-                        pnl, fee, reason, trigger_reason, order_id, signal_id)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        pnl, fee, reason, trigger_reason, order_id, signal_id, close_time)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
                 (
                     self.run_id,
                     closure.entry_id, closure.close_qty, closure.entry_price,
                     closure.exit_price, closure.pnl, closure.fee,
                     closure.reason, closure.trigger_reason,
-                    closure.order_id, closure.signal_id,
+                    closure.order_id, closure.signal_id, closure.close_time,
                 ),
             )
             return cur.fetchone()[0]
@@ -442,6 +450,115 @@ class BacktestDataStore(DataStore):
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, row)) for row in cur.fetchall()]
 
+    def get_attribution_by_metrics_bucket(self, metric_field: str, buckets: list[tuple[str, float | None, float | None]]) -> list[dict]:
+        """按信号指标字段分桶聚合归因 PNL。
+
+        参数:
+            metric_field: signals 表的指标字段名（如 quality_score, adx, direction_type）
+            buckets: 分桶定义列表，每个元素为 (label, low, high)。
+                     low=None 表示无下限，high=None 表示无上限。
+                     对于离散字段（如 direction_type），low=high=值。
+
+        返回:
+            每个桶的标签、笔数、总 PNL、平均 PNL、胜率。
+        """
+        results = []
+        with self._get_conn().cursor() as cur:
+            for label, low, high in buckets:
+                if low is not None and high is not None and low == high:
+                    # 离散值匹配（字符串/布尔）
+                    sql = """
+                        SELECT
+                            COUNT(*) AS count,
+                            COALESCE(SUM(ec.pnl), 0) AS total_pnl,
+                            COALESCE(AVG(ec.pnl), 0) AS avg_pnl,
+                            CASE WHEN COUNT(*) > 0
+                                THEN 100.0 * SUM(CASE WHEN ec.pnl > 0 THEN 1 ELSE 0 END) / COUNT(*)
+                                ELSE 0
+                            END AS win_rate
+                        FROM position_entry_closures ec
+                        JOIN position_entries pe ON ec.entry_id = pe.id
+                        JOIN signals s ON pe.signal_id = s.id
+                        WHERE ec.run_id = %s AND s.{field} = %s
+                    """.format(field=metric_field)
+                    cur.execute(sql, (self.run_id, low))
+                elif low is None and high is None:
+                    # 全部
+                    sql = """
+                        SELECT
+                            COUNT(*) AS count,
+                            COALESCE(SUM(ec.pnl), 0) AS total_pnl,
+                            COALESCE(AVG(ec.pnl), 0) AS avg_pnl,
+                            CASE WHEN COUNT(*) > 0
+                                THEN 100.0 * SUM(CASE WHEN ec.pnl > 0 THEN 1 ELSE 0 END) / COUNT(*)
+                                ELSE 0
+                            END AS win_rate
+                        FROM position_entry_closures ec
+                        WHERE ec.run_id = %s
+                    """
+                    cur.execute(sql, (self.run_id,))
+                elif low is None:
+                    sql = """
+                        SELECT
+                            COUNT(*) AS count,
+                            COALESCE(SUM(ec.pnl), 0) AS total_pnl,
+                            COALESCE(AVG(ec.pnl), 0) AS avg_pnl,
+                            CASE WHEN COUNT(*) > 0
+                                THEN 100.0 * SUM(CASE WHEN ec.pnl > 0 THEN 1 ELSE 0 END) / COUNT(*)
+                                ELSE 0
+                            END AS win_rate
+                        FROM position_entry_closures ec
+                        JOIN position_entries pe ON ec.entry_id = pe.id
+                        JOIN signals s ON pe.signal_id = s.id
+                        WHERE ec.run_id = %s AND s.{field} < %s
+                    """.format(field=metric_field)
+                    cur.execute(sql, (self.run_id, high))
+                elif high is None:
+                    sql = """
+                        SELECT
+                            COUNT(*) AS count,
+                            COALESCE(SUM(ec.pnl), 0) AS total_pnl,
+                            COALESCE(AVG(ec.pnl), 0) AS avg_pnl,
+                            CASE WHEN COUNT(*) > 0
+                                THEN 100.0 * SUM(CASE WHEN ec.pnl > 0 THEN 1 ELSE 0 END) / COUNT(*)
+                                ELSE 0
+                            END AS win_rate
+                        FROM position_entry_closures ec
+                        JOIN position_entries pe ON ec.entry_id = pe.id
+                        JOIN signals s ON pe.signal_id = s.id
+                        WHERE ec.run_id = %s AND s.{field} >= %s
+                    """.format(field=metric_field)
+                    cur.execute(sql, (self.run_id, low))
+                else:
+                    sql = """
+                        SELECT
+                            COUNT(*) AS count,
+                            COALESCE(SUM(ec.pnl), 0) AS total_pnl,
+                            COALESCE(AVG(ec.pnl), 0) AS avg_pnl,
+                            CASE WHEN COUNT(*) > 0
+                                THEN 100.0 * SUM(CASE WHEN ec.pnl > 0 THEN 1 ELSE 0 END) / COUNT(*)
+                                ELSE 0
+                            END AS win_rate
+                        FROM position_entry_closures ec
+                        JOIN position_entries pe ON ec.entry_id = pe.id
+                        JOIN signals s ON pe.signal_id = s.id
+                        WHERE ec.run_id = %s AND s.{field} >= %s AND s.{field} < %s
+                    """.format(field=metric_field)
+                    cur.execute(sql, (self.run_id, low, high))
+
+                row = cur.fetchone()
+                if row:
+                    results.append({
+                        "bucket": label,
+                        "count": row[0],
+                        "total_pnl": float(row[1]),
+                        "avg_pnl": float(row[2]),
+                        "win_rate": float(row[3]),
+                    })
+                else:
+                    results.append({"bucket": label, "count": 0, "total_pnl": 0.0, "avg_pnl": 0.0, "win_rate": 0.0})
+        return results
+
     def compare_runs(self, run_ids: list[str] | None = None) -> list[dict]:
         """多 run_id 横向对比归因指标。
 
@@ -520,6 +637,18 @@ CREATE TABLE IF NOT EXISTS signals (
     stop_loss NUMERIC(20,8),
     timestamp TIMESTAMPTZ NOT NULL,
     leverage INTEGER DEFAULT 1,
+    quality_score NUMERIC(10,2),
+    adx NUMERIC(10,2),
+    plus_di NUMERIC(10,2),
+    minus_di NUMERIC(10,2),
+    rsi NUMERIC(10,2),
+    volume_ratio NUMERIC(10,2),
+    parent_trend VARCHAR(20),
+    direction_type VARCHAR(20),
+    is_counter_trend BOOLEAN,
+    atr NUMERIC(20,8),
+    entry_threshold_pct NUMERIC(10,4),
+    distance_pct NUMERIC(10,4),
     create_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     update_time TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -570,6 +699,7 @@ CREATE TABLE IF NOT EXISTS position_entries (
     orig_qty NUMERIC(20,8) NOT NULL,
     remaining_qty NUMERIC(20,8) NOT NULL,
     entry_price NUMERIC(20,8) NOT NULL,
+    entry_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     entry_fee NUMERIC(20,8) NOT NULL DEFAULT 0,
     order_id VARCHAR(50),
     signal_id INTEGER REFERENCES signals(id) ON DELETE SET NULL,
@@ -592,7 +722,9 @@ CREATE TABLE IF NOT EXISTS position_entry_closures (
     trigger_reason VARCHAR(40),
     order_id VARCHAR(50),
     signal_id INTEGER REFERENCES signals(id) ON DELETE SET NULL,
-    close_time TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    close_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    create_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    update_time TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS filter_stats (

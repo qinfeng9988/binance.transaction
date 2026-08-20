@@ -42,6 +42,7 @@ from quant_trader.core.backtest_kline_driver import BacktestKlineDriver, load_fu
 from quant_trader.core.signal_router import handle_signal
 from quant_trader.exchange.binance_adapter import BinanceAdapter
 from quant_trader.exchange.paper_trading import PaperTradingEngine
+from quant_trader.core.time_utils import bar_close_time
 from quant_trader.main import PARENT_TIMEFRAME, TIMEFRAME_SECONDS
 from quant_trader.risk.manager import RiskManager
 from quant_trader.strategies.s_r_levels import SupportResistanceStrategy
@@ -202,6 +203,10 @@ def run_backtest_loop(
         parent_lookback=parent_lookback,
         funding_records=funding_records,
     ):
+        # 0. 设置当前业务时间为 bar 收盘时间
+        bar_close = bar_close_time(event.kline["timestamp"], timeframe)
+        paper_engine.set_current_time(bar_close)
+
         # 1. 价格更新 → 触发止损检查
         paper_engine.update_prices(symbol, event.kline["close"], backtest_ds)
 
@@ -225,6 +230,7 @@ def run_backtest_loop(
                 continue
             if ts_epoch - last_signal_time < signal_cooldown_seconds:
                 continue
+            sig.timestamp = bar_close
             handle_signal(
                 signal=sig,
                 paper_engine=paper_engine,

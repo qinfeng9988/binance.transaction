@@ -54,6 +54,18 @@ CREATE TABLE IF NOT EXISTS signals (
     stop_loss NUMERIC(20,8),
     timestamp TIMESTAMPTZ NOT NULL,
     leverage INTEGER DEFAULT 1,
+    quality_score NUMERIC(10,2),
+    adx NUMERIC(10,2),
+    plus_di NUMERIC(10,2),
+    minus_di NUMERIC(10,2),
+    rsi NUMERIC(10,2),
+    volume_ratio NUMERIC(10,2),
+    parent_trend VARCHAR(20),
+    direction_type VARCHAR(20),
+    is_counter_trend BOOLEAN,
+    atr NUMERIC(20,8),
+    entry_threshold_pct NUMERIC(10,4),
+    distance_pct NUMERIC(10,4),
     create_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     update_time TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -122,6 +134,7 @@ CREATE TABLE IF NOT EXISTS position_entries (
     orig_qty NUMERIC(20,8) NOT NULL,
     remaining_qty NUMERIC(20,8) NOT NULL,
     entry_price NUMERIC(20,8) NOT NULL,
+    entry_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     entry_fee NUMERIC(20,8) NOT NULL DEFAULT 0,
     order_id VARCHAR(50),
     signal_id INTEGER REFERENCES signals(id) ON DELETE SET NULL,
@@ -150,7 +163,9 @@ CREATE TABLE IF NOT EXISTS position_entry_closures (
     trigger_reason VARCHAR(40),                      -- 策略触发原因: "2.0R" / "ema_cross_down" / "reverse_signal" / "stop_loss" 等
     order_id VARCHAR(50),
     signal_id INTEGER REFERENCES signals(id) ON DELETE SET NULL,
-    close_time TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    close_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    create_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    update_time TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 COMMENT ON TABLE position_entry_closures IS '出场明细表（回测），按 run_id 隔离，每笔平仓按 FIFO 扣减 entries 生成';

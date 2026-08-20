@@ -84,6 +84,17 @@ class PaperTradingEngine:
         self.trades_closed: list[dict] = []      # 已平仓记录
         self._order_counter = 0
         self.fee_rate = self.FEE_RATE_SWAP if default_type == "swap" else self.FEE_RATE_SPOT
+        self._current_time: datetime | None = None
+
+    def set_current_time(self, bar_close_time: datetime):
+        """设置当前业务时间（回测时由驱动器调用）。"""
+        self._current_time = bar_close_time
+
+    def _now(self) -> datetime:
+        """返回当前业务时间。回测时返回 bar 收盘时间，实盘返回真实 UTC 时间。"""
+        if self._current_time is not None:
+            return self._current_time
+        return datetime.now(tz=timezone.utc)
 
     def place_order(self, symbol: str, side: str, amount: float,
                     price: float, leverage: int = 1,
@@ -138,7 +149,7 @@ class PaperTradingEngine:
             fee=fee,
         )
 
-        # 扣除手续费和保证金
+        # 扣除保证金（开仓手续费在平仓时通过归因公式分摊扣减）
         if self.default_type == "swap":
             required_margin = (price * amount) / leverage
             self.balance -= (required_margin + fee)
@@ -149,6 +160,14 @@ class PaperTradingEngine:
         order.order_type, order.position_id = self._update_position(
             order, stop_loss, data_store, metadata=metadata, signal_id=signal_id
         )
+
+        # 反向信号平仓：close_position 已自行归还保证金+盈亏，
+        # 但 place_order 开头扣的新订单保证金需退还
+        if order.order_type in ("close", "stop_loss_close", "take_profit_close", "end_of_data"):
+            if self.default_type == "swap":
+                self.balance += (required_margin + fee)
+            else:
+                self.balance += (price * amount + fee)
 
         # 同步订单到数据库
         if data_store:
@@ -363,6 +382,7 @@ class PaperTradingEngine:
                 pnl=pos.realized_pnl,
                 close_count=pos.close_count,
                 total_fee=fee,
+                exit_time=self._now(),
             )
 
         # 记录已平仓
@@ -376,7 +396,7 @@ class PaperTradingEngine:
             "pnl": net_pnl,
             "fee": fee,
             "entry_time": pos.entry_time,
-            "exit_time": datetime.now(tz=timezone.utc),
+            "exit_time": self._now(),
             "position_id": pos.position_id,
             "order_type": order_type,
         })
@@ -532,7 +552,7 @@ class PaperTradingEngine:
                 price=close_price,
                 quantity=-close_qty,  # 减仓为负
                 leverage=pos.leverage,
-                timestamp=datetime.now(tz=timezone.utc),
+                timestamp=self._now(),
                 mode="paper",
                 fee=fee,
                 status="filled",
@@ -554,6 +574,7 @@ class PaperTradingEngine:
                     pnl=pos.realized_pnl,
                     close_count=pos.close_count,
                     total_fee=fee,
+                    exit_time=self._now(),
                 )
             del self.positions[symbol]
         else:
@@ -582,7 +603,7 @@ class PaperTradingEngine:
             "pnl": net_pnl,
             "fee": fee,
             "entry_time": pos.entry_time,
-            "exit_time": datetime.now(tz=timezone.utc),
+            "exit_time": self._now(),
             "position_id": pos.position_id,
             "order_type": "partial_close",
         })
@@ -657,7 +678,7 @@ class PaperTradingEngine:
                 entry_price=order.price,
                 quantity=order.amount,
                 leverage=order.leverage,
-                entry_time=datetime.now(tz=timezone.utc),
+                entry_time=self._now(),
                 stop_loss=stop_loss,
                 status="open",
             ), total_fee=entry_fee)
@@ -691,6 +712,7 @@ class PaperTradingEngine:
                 orig_qty=qty,
                 remaining_qty=qty,
                 entry_price=price,
+                entry_time=self._now(),
                 entry_fee=entry_fee,
                 order_id=order_id,
                 signal_id=signal_id,
@@ -744,6 +766,7 @@ class PaperTradingEngine:
                 pnl=attributed_pnl,
                 fee=fee_share,
                 reason=reason,
+                close_time=self._now(),
                 trigger_reason=trigger_reason,
                 order_id=order_id,
                 signal_id=signal_id,
