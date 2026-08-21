@@ -132,6 +132,20 @@ def print_attribution_detail(store: BacktestDataStore, run_id: str):
     else:
         print("  (无归因数据)")
 
+    # 按月份统计（含累计 PnL）
+    print("\n── 按月份统计 ──────────────────────────")
+    by_month = store.get_attribution_by_month()
+    if not by_month:
+        print("  (无归因数据)")
+    else:
+        print(f"  {'月份':<10} {'笔数':<6} {'本月收益':>12} {'总收益':>12} {'本月胜率%':>9}")
+        print("  " + "-" * 55)
+        for row in by_month:
+            print(f"  {row['month']:<10} {row['count']:<6} "
+                  f"{float(row['total_pnl']):>+12.2f} "
+                  f"{float(row['cumulative_pnl']):>+12.2f} "
+                  f"{float(row['win_rate']):>7.1f}%")
+
     # 按信号明细
     print("\n── 按信号明细（最近 10 条） ──────────────────────────")
     by_signal = store.get_attribution_by_signal()

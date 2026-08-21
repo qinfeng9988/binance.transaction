@@ -98,6 +98,7 @@ def test_print_attribution_detail_handles_empty(capsys):
     store.get_attribution_by_reason.return_value = []
     store.get_attribution_by_entry_seq.return_value = []
     store.get_attribution_by_position.return_value = []
+    store.get_attribution_by_month.return_value = []
     store.get_attribution_by_signal.return_value = []
 
     print_attribution_detail(store, "bt_empty")
@@ -107,7 +108,7 @@ def test_print_attribution_detail_handles_empty(capsys):
 
 
 def test_print_attribution_detail_outputs_reason_seq_direction(capsys):
-    """有数据时输出 reason×trigger/seq/direction 三个维度。"""
+    """有数据时输出 reason×trigger/seq/direction/月份 四个维度。"""
     store = MagicMock()
     store.get_attribution_by_reason.return_value = [
         {"reason": "CLOSE_FULL", "trigger_reason": "signal_close", "count": 1,
@@ -119,6 +120,10 @@ def test_print_attribution_detail_outputs_reason_seq_direction(capsys):
     store.get_attribution_by_position.return_value = [
         {"side": "buy", "total_attributed_pnl": 99.49},
     ]
+    store.get_attribution_by_month.return_value = [
+        {"month": "2026-01", "count": 1, "total_pnl": 99.49,
+         "cumulative_pnl": 99.49, "win_rate": 100.0},
+    ]
     store.get_attribution_by_signal.return_value = []
 
     print_attribution_detail(store, "bt_xxx")
@@ -127,6 +132,7 @@ def test_print_attribution_detail_outputs_reason_seq_direction(capsys):
     assert "CLOSE_FULL" in captured.out
     assert "signal_close" in captured.out
     assert "buy" in captured.out
+    assert "2026-01" in captured.out
 
 
 def test_print_compare_table_outputs_run_id_rows(capsys):

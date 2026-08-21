@@ -450,6 +450,53 @@ class BacktestDataStore(DataStore):
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, row)) for row in cur.fetchall()]
 
+    def get_attribution_by_month(self) -> list[dict]:
+        """按平仓月份聚合归因 PNL。
+
+        以 close_time 所属月份分桶，缺失月份补零行，输出累计 PnL（逐月累加）。
+        月份范围由该 run_id 下 MIN/MAX(close_time) 决定，确保只覆盖实际有平仓的区间。
+        """
+        sql = """
+            WITH bounds AS (
+                SELECT
+                    date_trunc('month', MIN(close_time)) AS start_month,
+                    date_trunc('month', MAX(close_time)) AS end_month
+                FROM position_entry_closures
+                WHERE run_id = %s
+            ),
+            months AS (
+                SELECT generate_series(start_month, end_month, '1 month'::interval) AS month
+                FROM bounds
+                WHERE start_month IS NOT NULL
+            ),
+            monthly AS (
+                SELECT
+                    date_trunc('month', close_time) AS month,
+                    COUNT(*) AS count,
+                    SUM(ec.pnl) AS total_pnl,
+                    CASE WHEN COUNT(*) > 0
+                        THEN 100.0 * SUM(CASE WHEN ec.pnl > 0 THEN 1 ELSE 0 END) / COUNT(*)
+                        ELSE 0
+                    END AS win_rate
+                FROM position_entry_closures ec
+                WHERE ec.run_id = %s
+                GROUP BY 1
+            )
+            SELECT
+                to_char(m.month, 'YYYY-MM') AS month,
+                COALESCE(mc.count, 0) AS count,
+                COALESCE(mc.total_pnl, 0) AS total_pnl,
+                COALESCE(mc.win_rate, 0) AS win_rate,
+                SUM(COALESCE(mc.total_pnl, 0)) OVER (ORDER BY m.month) AS cumulative_pnl
+            FROM months m
+            LEFT JOIN monthly mc ON mc.month = m.month
+            ORDER BY m.month ASC
+        """
+        with self._get_conn().cursor() as cur:
+            cur.execute(sql, (self.run_id, self.run_id))
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, row)) for row in cur.fetchall()]
+
     def get_attribution_by_metrics_bucket(self, metric_field: str, buckets: list[tuple[str, float | None, float | None]]) -> list[dict]:
         """按信号指标字段分桶聚合归因 PNL。
 

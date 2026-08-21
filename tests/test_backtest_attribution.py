@@ -171,6 +171,48 @@ def test_get_attribution_by_entry_seq_sql_groups_by_seq():
 
 
 # ============================================================
+# get_attribution_by_month: 按平仓月份聚合（补零 + 累计 PnL）
+# ============================================================
+
+def test_get_attribution_by_month_returns_aggregated_dict():
+    """按月聚合：缺失月份补零、累计 PnL 逐月累加。"""
+    store, cur = make_store_and_cursor("bt_month")
+    cur.description = [
+        ("month",), ("count",), ("total_pnl",),
+        ("win_rate",), ("cumulative_pnl",),
+    ]
+    cur.fetchall.return_value = [
+        ("2026-01", 12, 1234.56, 58.3, 1234.56),
+        ("2026-02", 0, 0.0, 0.0, 1234.56),    # 缺失月份补零
+        ("2026-03", 8, -500.00, 37.5, 734.56),  # 累计 = 上月 + 本月
+    ]
+
+    result = store.get_attribution_by_month()
+
+    assert len(result) == 3
+    assert result[0]["month"] == "2026-01"
+    assert result[0]["cumulative_pnl"] == 1234.56
+    assert result[1]["count"] == 0               # 缺失月份
+    assert result[1]["cumulative_pnl"] == 1234.56  # 累计不变
+    assert result[2]["cumulative_pnl"] == 734.56    # 逐月累加
+
+
+def test_get_attribution_by_month_sql_groups_by_close_time_month():
+    store, cur = make_store_and_cursor("bt_m2")
+    cur.description = []
+    cur.fetchall.return_value = []
+
+    store.get_attribution_by_month()
+
+    sql = cur.execute.call_args[0][0]
+    assert "date_trunc('month'" in sql.lower()
+    assert "generate_series" in sql.lower()
+    assert "close_time" in sql.lower()
+    assert "run_id" in sql.lower()
+    assert "cumulative_pnl" in sql.lower()
+
+
+# ============================================================
 # compare_runs: 多 run_id 横向对比
 # ============================================================
 

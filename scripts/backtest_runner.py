@@ -54,7 +54,8 @@ logger = logging.getLogger(__name__)
 
 STRATEGY_REGISTRY = {
     "support_resistance": SupportResistanceStrategy,
-    "support_resistance_btc": SupportResistanceStrategy,
+    "support_resistance_btc_5m": SupportResistanceStrategy,
+    "support_resistance_btc_1h": SupportResistanceStrategy,
     "support_resistance_eth": SupportResistanceStrategy,
     "support_resistance_eth_5m": SupportResistanceStrategy,
     "support_resistance_sol": SupportResistanceStrategy,
