@@ -854,7 +854,7 @@ class SupportResistanceStrategy(BaseStrategy):
             # 正 funding 过高：禁止做多
             if funding_rate > funding_long_hard_block_threshold:
                 logger.info(
-                    "[FR过滤] %s %s: funding=%.4f%% > 硬阈值%.2f%%, 禁止做多",
+                    "[FR过滤] %s %s: funding=%.4f%% > 硬阈值%.4f%%, 禁止做多",
                     symbol, timeframe, funding_rate, funding_long_hard_block_threshold,
                 )
                 can_buy = False
@@ -863,7 +863,7 @@ class SupportResistanceStrategy(BaseStrategy):
             # 负 funding 过低：禁止做空
             if funding_rate < funding_short_hard_block_threshold:
                 logger.info(
-                    "[FR过滤] %s %s: funding=%.4f%% < 硬阈值%.2f%%, 禁止做空",
+                    "[FR过滤] %s %s: funding=%.4f%% < 硬阈值%.4f%%, 禁止做空",
                     symbol, timeframe, funding_rate, funding_short_hard_block_threshold,
                 )
                 can_sell = False
@@ -993,7 +993,7 @@ class SupportResistanceStrategy(BaseStrategy):
                         quality_score += funding_long_quality_penalty
                         filter_stats["buy"]["fr_penalty"] += 1
                         logger.debug(
-                            "FR软阈值 %s %s 做多: funding=%.4f%% > %.2f%%, quality %.1f → %.1f",
+                            "FR软阈值 %s %s 做多: funding=%.4f%% > %.4f%%, quality %.1f → %.1f",
                             symbol, timeframe, funding_rate, funding_long_penalty_threshold,
                             quality_score - funding_long_quality_penalty, quality_score,
                         )
@@ -1289,7 +1289,7 @@ class SupportResistanceStrategy(BaseStrategy):
                         quality_score += funding_long_quality_penalty  # 使用相同惩罚值
                         filter_stats["sell"]["fr_penalty"] += 1
                         logger.debug(
-                            "FR软阈值 %s %s 做空: funding=%.4f%% < %.2f%%, quality %.1f → %.1f",
+                            "FR软阈值 %s %s 做空: funding=%.4f%% < %.4f%%, quality %.1f → %.1f",
                             symbol, timeframe, funding_rate, funding_short_block_threshold,
                             quality_score - funding_long_quality_penalty, quality_score,
                         )
