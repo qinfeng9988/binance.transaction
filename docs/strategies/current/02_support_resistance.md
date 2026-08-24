@@ -375,30 +375,41 @@ FR软阈值 SOL/USDT 5m 做空: funding=-0.0250% < -0.02%, quality 6.0 → 5.0
 | 止损 | 价格触及 ATR 动态止损位 | 由策略生成信号时设定，引擎自动监控 |
 | 反向信号 | 持有多仓时收到 sell / 持有空仓时收到 buy | 先平仓再反向开仓 |
 | 同向加仓 | 同方向新信号 | 以新价格加仓，更新持仓均价；BTC 震荡期最多1次/趋势期最多2次，ETH/SOL 关闭加仓 |
-| 结构化止损 | 盈利 >= 1.5R 后止损上移至最近 S/R 位下方（buffer 0.3%） | v1.6.0 BTC 1h / ETH 启用；质量分>=6 的位额外 +0.2% buffer |
-| 部分止盈 | 2R 平 40%、3.5R 平 30% | v1.6.0 BTC 1h 启用；ETH 已启用 2R/40% |
+| 结构化止损 | 盈利 >= 1.5R 后止损上移至最近 S/R 位下方（buffer 0.3%） | v1.6.1 回测验证后关闭：1h 周期止损移至 S/R 位后频繁触发 |
+| 部分止盈 | 2R 平 40%、3.5R 平 30% | BTC 1h v1.6.1 回测验证后关闭；ETH/SOL 保留 2R/40% |
 
-#### 退出管理（v1.6.0 起与开仓过滤解耦）
+#### 退出管理（v1.6.0 起与开仓过滤解耦，v1.6.1 回测验证）
 
 **背景**：v1.4.0 回测结论是结构化止损/部分止盈"截断盈利、降低大行情收益"，故默认禁用。但实盘 paper 模式观察到另一面问题——已有仓位在 +20%~+30% 浮盈时，因 `structured_stop`/`partial_tp` 全关且止损固定在入场价下方，浮盈完全未锁定；而退出管理写在 `on_bar` 的 ADX/震荡过滤**之后**，开仓被过滤拦截（提前 `return []`）时连带跳过退出管理，导致已有仓位在震荡行情中"裸奔"。
 
-**改动**（`s_r_levels.py`）：
+**改动**（`s_r_levels.py`，v1.6.0）：
 - 提取退出管理为独立方法 `_manage_position_exits()`
 - ATR 与已有持仓查找**提前**到 ADX 过滤之前
 - ADX / 自身震荡 / 上级震荡 三处提前返回由 `return []` 改为 `return self._manage_position_exits(...)`
 - 正常路径在开仓信号生成后追加调用，保持 `[开仓, 退出]` 信号顺序
 
-**效果**：已有仓位的结构化止损/跟踪止损/部分止盈每根 bar 无条件执行，不再受开仓侧过滤（ADX / 震荡 / strict_bias / Funding Rate）影响。
+**信号调度修复**（v1.6.1）：
+- `backtest_runner.py` / `main.py` 原先每根 K 线只处理一个信号（`break`），退出信号排在开仓信号之后会被跳过
+- 修复：退出管理信号（`update_stop` / `partial_close`）优先执行且无 cooldown，开仓信号再执行保持 cooldown + one-per-bar
+
+**效果**：已有仓位的结构化止损/跟踪止损/部分止盈每根 bar 无条件执行，不再受开仓侧过滤（ADX / 震荡 / strict_bias / Funding Rate）影响，也不受信号调度 cooldown 延迟。
+
+**v1.6.1 回测验证结论**：
+
+| 币种 | 周期 | baseline 收益 | v1.6.0 收益 | baseline MDD | v1.6.0 MDD | 结论 |
+|------|------|-------------|-----------|-------------|-----------|------|
+| BTC/USDT | 1h | **+4.62%** | +0.92% | 2.24% | 1.24% | structured_stop + partial_tp 均拖累，关闭 |
+| ETH/USDT | 1h | **+6.45%** | +1.69% | 0.96% | 0.97% | structured_stop 拖累（SL 5→29），关闭；partial_tp 保留 |
+
+核心问题：structured_stop 将止损移至 S/R 位附近后频繁被触发，将原本能继续盈利的单子提前平仓，与 v1.4.0 在 5m 周期的结论一致。MDD 改善有限（BTC 1.0%，ETH 几乎不变），收益损失显著（BTC -3.7%，ETH -4.8%）。
 
 #### 退出机制开关状态（以 `strategies.yaml` 为准）
 
 | 机制 | BTC 5m | BTC 1h | ETH (1h) | SOL | 说明 |
 |------|--------|--------|----------|-----|------|
-| 结构化止损 `structured_stop_enabled` | false | **true**（v1.6.0） | **true**（v1.6.0） | false | 优先于跟踪止损 |
+| 结构化止损 `structured_stop_enabled` | false | false | false | false | v1.6.1 回测验证后全部关闭 |
 | 跟踪止损 `trailing_stop_enabled` | false | false | false | false | 仅结构化关闭时生效 |
-| 部分止盈 `partial_tp_enabled` | false | **true**（v1.6.0） | true | true | BTC 1h 新开启 |
-
-> v1.4.0 回测在"开仓即被严格过滤"的前提下得出这些机制拖累收益；v1.6.0 解耦后退出管理独立运行，定位从"提升每笔表现"转为"锁定已有浮盈、防止盈利单回吐成亏损"，二者场景不同，需重新回测评估。
+| 部分止盈 `partial_tp_enabled` | false | false | true | true | BTC 1h v1.6.1 回测验证后关闭 |
 
 ## 3. 策略参数
 
@@ -806,8 +817,8 @@ python scripts/analyze_attribution.py --latest
 | 信号冷却期 | **是** | 否 | 引擎层 220 秒同币种冷却 |
 | Funding Rate 过滤 | **是** | 否 | v1.5.0：硬阈值阻断 + 软阈值扣分/降杠杆 |
 | 移动止损 | 策略内（已禁用） | 否 | v1.4.0 测试后关闭 |
-| 结构化止损 | 策略内（BTC1h/ETH 启用） | 否 | v1.6.0 解耦退出管理后启用，锁定已有浮盈 |
-| 部分止盈 | 策略内（BTC1h/ETH/SOL 启用） | 是 | v1.6.0: BTC 1h 启用；ETH/SOL 已启用 2R/40% |
+| 结构化止损 | 策略内（已禁用） | 否 | v1.6.1 回测验证后关闭：1h 周期 S/R 位附近止损频繁触发 |
+| 部分止盈 | 策略内（ETH/SOL 启用） | 是 | v1.6.1: BTC 1h 回测验证后关闭；ETH/SOL 保留 2R/40% |
 
 ## 6. 回测结果
 
@@ -821,17 +832,28 @@ python scripts/analyze_attribution.py --latest
 
 **策略特征（v1.5.0）**：低胜率（~33%）但较高盈亏比。YTD 收益 +38.22%，FR 过滤拦截顶格拥挤时段。30 天近期表现较差（-3.74%），主要受 6 月中旬连续止损影响，但 60 天区间受 5 月单笔大盈利拉动收益达 +33.64%。盈利单能跑很远，亏损单被严格截断。
 
-### 6.2 ETH/USDT (1h)
+### 6.2 BTC/USDT (1h)
+
+| 回测区间 | 收益率 | 最大回撤 | 交易次数 | 胜率 | 说明 |
+|---------|--------|---------|---------|------|------|
+| YTD（1/1-8/24, baseline） | **+4.62%** | 2.24% | 11 | 45.5% | structured_stop=false, partial_tp=false |
+| YTD（1/1-8/24, v1.6.0） | +0.92% | 1.24% | 32 | 78.1% | structured_stop=true, partial_tp=true |
+
+**策略特征（v1.6.1）**：1h 周期低频交易（YTD 11 笔 baseline），核心逻辑依赖大赢单覆盖小亏损。structured_stop 将止损移至 S/R 位后频繁触发（SL 从 6 增至 18），partial_tp 截断大赢单，两种机制均严重拖累收益。当前配置：**关闭 structured_stop 和 partial_tp**。
+
+### 6.3 ETH/USDT (1h)
 
 | 回测区间 | 收益率 | 最大回撤 | 交易次数 | 胜率 | Profit Factor |
 |---------|--------|---------|---------|------|--------------|
 | 30天（近期） | -7.20% | 8.52% | 11 | 36.4% | 0.14 |
 | 60天（近期） | -4.57% | 8.69% | 29 | 62.1% | 0.60 |
 | YTD（1/1-7/8, v1.5.0） | **+17.21%** | 8.69% | 62 | 66.1% | **1.80** |
+| YTD（1/1-8/24, baseline） | **+6.45%** | 0.96% | 32 | 78.1% | — |
+| YTD（1/1-8/24, v1.6.0） | +1.69% | 0.97% | 48 | 64.6% | — |
 
-**策略特征（v1.5.0）**：YTD 收益率 **+17.21%**（62 笔，胜率 66.1%，PF 1.80）。近期 30 天和 60 天表现不佳，主要受 6-7 月震荡行情影响（MDD 扩大至 8.69%）。整体仍依赖上半年趋势期盈利覆盖近期亏损。距离过滤仍是主要信号瓶颈（拦截率 93-94%）。
+**策略特征（v1.6.1）**：YTD 收益率 +6.45%（baseline，structured_stop=false, partial_tp=true）。structured_stop 导致 SL 从 5 暴增至 29，收益从 +6.45% 降至 +1.69%，MDD 无改善。当前配置：**关闭 structured_stop，保留 partial_tp（2.0R/40%）**。
 
-### 6.3 SOL/USDT (5m)
+### 6.4 SOL/USDT (5m)
 
 | 回测区间 | 收益率 | 最大回撤 | 交易次数 | 胜率 | Profit Factor |
 |---------|--------|---------|---------|------|--------------|
@@ -841,7 +863,7 @@ python scripts/analyze_attribution.py --latest
 
 **策略特征（v1.5.0）**：交易频率高（630 笔/YTD），胜率中等（~58%），MDD 控制在 3.6% 以内。FR 过滤是 SOL 的核心增强点：做空软惩罚大幅减少逆势交易。逐月盈利分布均匀，表现稳健。partial TP 2R/40% 继续启用以削峰填谷。
 
-### 6.4 PAXG/USDT (1h)
+### 6.5 PAXG/USDT (1h)
 
 | 回测区间 | 收益率 | 最大回撤 | 交易次数 | 胜率 | Profit Factor |
 |---------|--------|---------|---------|------|--------------|
@@ -857,8 +879,8 @@ python scripts/analyze_attribution.py --latest
 - [x] **Order Block / FVG 检测**：v1.4.0 已实现混合聚类
 - [x] **自适应摆动窗口**：v1.4.0 已实现
 - [x] **移动止损测试**：v1.4.0 测试完成，已禁用（v1.6.0 仍未启用）
-- [x] **结构化止损测试**：v1.4.0 测试后禁用 → v1.6.0 解耦退出管理后 BTC 1h/ETH 重新启用
-- [x] **部分止盈测试**：v1.4.0 BTC禁用、ETH/SOL启用 → v1.6.0 BTC 1h 启用（2R/40%、3.5R/30%）
+- [x] **结构化止损测试**：v1.4.0 测试后禁用 → v1.6.0 解耦后重新启用 → v1.6.1 回测验证后关闭（1h 周期 S/R 位附近止损频繁触发）
+- [x] **部分止盈测试**：v1.4.0 BTC禁用、ETH/SOL启用 → v1.6.0 BTC 1h 启用 → v1.6.1 回测验证后 BTC 1h 关闭（截断大赢单）
 - [x] **多周期共振（BTC）**：v1.4.0 测试完成，已移除（冗余）
 - [x] **多周期共振（SOL 5m+15m）**：测试完成，收益腰斩，已禁用
 - [x] **ETH 1h 长周期回测**：2026-01~06 完成，+16.05% / MDD 6.32% / 30笔 / PF 2.67
@@ -874,6 +896,7 @@ python scripts/analyze_attribution.py --latest
 
 | 版本 | 日期 | 变更内容 | 变更人 |
 |------|------|---------|--------|
+| v1.6.1 | 2026-08-24 | 退出机制回测评估：①修复信号调度bug（退出信号被 break/cooldown 跳过，改为退出信号优先执行无 cooldown）②BTC 1h/ETH 1h YTD 回测对比（baseline vs structured_stop+partial_tp）③回测结论：structured_stop 在 1h 周期将止损移至 S/R 位后频繁触发，收益大幅下降，MDD 改善有限；BTC 1h partial_tp 截断大赢单。④配置调整：BTC 1h 关闭 structured_stop+partial_tp，ETH 关闭 structured_stop | jiangfeng.qin |
 | v1.6.0 | 2026-08-24 | 退出管理与开仓过滤解耦：①提取 `_manage_position_exits()` 方法（结构化止损/跟踪止损/部分止盈）②ATR 与已有持仓查找提前到 ADX 过滤之前 ③ADX/自身震荡/上级震荡三处提前返回由 `return []` 改为返回退出信号，确保已有仓位止盈止损每根 bar 无条件执行 ④BTC 1h / ETH 启用 `structured_stop`+`partial_tp`（锁定已有浮盈，定位从"提升每笔表现"转为"防止盈利单回吐"） | jiangfeng.qin |
 | v1.4.2 | 2026-06-09 | 策略配置定型与文档更新：①ETH 关闭 5m 交易周期、关闭加仓与拒绝蜡烛 ②BTC 启用拒绝蜡烛（2.0x） ③SOL 关闭拒绝蜡烛 ④清理 ETH/SOL 无用配置参数 ⑤移除 `check_rejection_candle` 废弃的 `reference_size` 参数 ⑥优化 `identify_support_resistance` 拒绝蜡烛计算（require_rejection=false 时跳过） | jiangfeng.qin |
 | v1.4.1 | 2026-06-08 | 加仓机制优化（保守版本）：①分级加仓（震荡期1次/趋势期2次）②第2次加仓质量门槛≥6.0 ③总风险上限8% ④连续亏损≥3次后加仓降级 ⑤修复paper模式existing_pos感知bug（加仓质量过滤对模拟交易失效） | jiangfeng.qin |

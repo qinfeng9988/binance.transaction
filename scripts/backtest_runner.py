@@ -224,11 +224,29 @@ def run_backtest_loop(
             funding_rate=event.funding_rate,
         )
 
-        # 4. 路由信号（带冷却期）
+        # 4. 路由信号
+        # 4a. 退出管理信号（update_stop / partial_close）优先执行，无冷却期
+        #     退出管理与开仓过滤解耦（v1.6.0），需每根 bar 无条件执行，
+        #     否则已有仓位的止损上移/部分止盈可能被延迟或跳过
         ts_epoch = event.kline["timestamp"].timestamp()
         for sig in signals:
             if sig.symbol != symbol:
                 continue
+            if sig.action in ("update_stop", "partial_close"):
+                sig.timestamp = bar_close
+                handle_signal(
+                    signal=sig,
+                    paper_engine=paper_engine,
+                    data_store=backtest_ds,
+                    risk_manager=risk_manager,
+                    mode="paper",
+                )
+        # 4b. 开仓/全平信号，保持冷却期 + 每根 K 线只执行一个
+        for sig in signals:
+            if sig.symbol != symbol:
+                continue
+            if sig.action in ("update_stop", "partial_close"):
+                continue  # 退出信号已在 4a 处理
             if ts_epoch - last_signal_time < signal_cooldown_seconds:
                 continue
             sig.timestamp = bar_close
@@ -240,7 +258,7 @@ def run_backtest_loop(
                 mode="paper",
             )
             last_signal_time = ts_epoch
-            break  # 每根 K 线只执行一个信号
+            break  # 每根 K 线只执行一个开仓信号
 
     # 5. 回测结束：强制平仓所有 open positions
     if paper_engine.positions:

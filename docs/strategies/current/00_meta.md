@@ -4,15 +4,16 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本号 | **v1.6.0** |
+| 版本号 | **v1.6.1** |
 | 发布日期 | 2026-08-24 |
-| 状态 | 开发中（退出管理与开仓过滤解耦） |
+| 状态 | 已验证（信号调度修复 + 退出机制回测评估） |
 | 代码分支 | develop |
 
 ## 版本历史
 
 | 版本 | 日期 | 变更内容 | 变更人 |
 |------|------|---------|--------|
+| v1.6.1 | 2026-08-24 | 退出机制回测评估：①修复信号调度bug（退出信号被break/cooldown跳过，改为退出信号优先执行无cooldown）②BTC 1h/ETH 1h YTD回测对比（baseline vs structured_stop+partial_tp）③回测结论：structured_stop在1h周期止损移至S/R位后频繁触发，严重拖累收益，关闭；BTC 1h partial_tp截断大赢单，关闭 | jiangfeng.qin |
 | v1.6.0 | 2026-08-24 | 退出管理与开仓过滤解耦：①提取 `_manage_position_exits()` 方法 ②ATR/已有持仓查找提前到 ADX 过滤之前 ③ADX/自身震荡/上级震荡三处提前返回由 `return []` 改为返回退出信号，已有仓位止盈止损每根 bar 无条件执行 ④BTC 1h / ETH 启用 `structured_stop`+`partial_tp`，锁定已有浮盈、防止盈利单回吐 | jiangfeng.qin |
 | v1.5.2 | 2026-07-08 | 持仓监控模式改进：①修复结构化止损浮亏场景bug（止损被保本约束拉到当前价另一侧）②新增止盈建议（按S/R位质量分排序取TP1/TP2，ATR备选）③持仓输出格式重设计（趋势/止盈/S/R位详情/中文标签） | jiangfeng.qin |
 | v1.5.1 | 2026-07-03 | 新增手动交易辅助 S/R 查询功能：①analyze_sr_levels 纯分析函数 ②QueryServer HTTP 查询服务 ③query_sr CLI 脚本 ④manual_config.yaml 手动配置 | jiangfeng.qin |
@@ -41,7 +42,46 @@
 |------|------|------|
 | [01_risk_policy.md](01_risk_policy.md) | v1.0.0 | 生效中（本迭代未变更） |
 
-## v1.6.0 变更摘要（当前）
+## v1.6.1 变更摘要（当前）
+
+### A. 信号调度修复
+
+**问题**：`backtest_runner.py` 和 `main.py` 的信号分发循环均有 `break`（每根 K 线只处理一个信号）+ 220 秒 cooldown。v1.6.0 策略返回 `[open_signal, update_stop_signal, partial_close_signal]` 时，退出信号排在开仓信号之后，被 `break` 跳过；cooldown 也可能延迟退出信号 1~2 根 bar。
+
+**修复**：退出管理信号（`update_stop` / `partial_close`）优先执行且无 cooldown，开仓/全平信号再执行保持 cooldown + one-per-bar。修改文件：`scripts/backtest_runner.py`、`quant_trader/main.py`。
+
+### B. 退出机制回测评估
+
+**回测区间**：2026-01-01 ~ 2026-08-24（YTD）
+
+#### BTC/USDT 1h
+
+| 配置 | 收益率 | MDD | 交易数 | 胜率 | 关键归因 |
+|------|--------|-----|--------|------|---------|
+| baseline（structured_stop=false, partial_tp=false） | **+4.62%** | 2.24% | 11 | 45.5% | 10 reverse_close, 6 SL |
+| v1.6.0（structured_stop=true, partial_tp=true） | +0.92% | 1.24% | 32 | 78.1% | 12 partial 2.0R, 6 partial 3.5R, 4 reverse, 18 SL |
+
+**结论**：structured_stop 将止损移至 S/R 位附近后频繁触发（SL 从 6 次增至 18 次），截断原本能继续盈利的单子；partial_tp 在 2.0R/3.5R 平仓进一步削减大赢单。BTC 1h 的核心逻辑依赖大赢单覆盖小亏损，两种机制均严重拖累收益。**关闭 structured_stop 和 partial_tp**。
+
+#### ETH/USDT 1h
+
+| 配置 | 收益率 | MDD | 交易数 | 胜率 | 关键归因 |
+|------|--------|-----|--------|------|---------|
+| baseline（structured_stop=false, partial_tp=true） | **+6.45%** | 0.96% | 32 | 78.1% | 10 partial 2.0R, 20 reverse, 5 SL |
+| v1.6.0（structured_stop=true, partial_tp=true） | +1.69% | 0.97% | 48 | 64.6% | 12 partial 2.0R, 14 reverse, 29 SL |
+
+**结论**：与 BTC 一致，structured_stop 导致 SL 从 5 次暴增至 29 次，收益从 +6.45% 降至 +1.69%。MDD 无改善（0.96%→0.97%）。**关闭 structured_stop**；partial_tp（2.0R/40%）在 baseline 中表现稳定，保留。
+
+### C. 配置调整
+
+| 策略 | structured_stop | partial_tp | 说明 |
+|------|-----------------|------------|------|
+| support_resistance_btc_1h | true→**false** | true→**false** | 回测验证：均拖累收益 |
+| support_resistance_eth | true→**false** | 保持 true | structured_stop 拖累收益；partial_tp 2.0R 保留 |
+
+**综合结论**：v1.6.0 解耦改动（`_manage_position_exits()` 提取 + 退出信号不被开仓过滤阻断）是正确的架构改进，但退出机制本身在 1h 周期上仍不适用——S/R 位附近止损频繁被触发，与 v1.4.0 在 5m 周期的结论一致。退出管理代码保留但默认关闭，后续可探索更宽松的 buffer 或更长周期（4h）适配。
+
+## v1.6.0 变更摘要
 
 ### A. 退出管理与开仓过滤解耦
 
@@ -164,6 +204,15 @@
 
 **策略特征（v1.5.0）**：低胜率（~33%）但较高盈亏比。YTD 收益 +38.22%，FR 过滤拦截顶格拥挤时段。30 天近期受连续止损影响为 -3.74%，但 60 天区间 +33.64% 体现大赢单覆盖小亏损的特征。
 
+### BTC/USDT (1h)
+
+| 回测区间 | 收益率 | 最大回撤 | 交易次数 | 胜率 | 说明 |
+|---------|--------|---------|---------|------|------|
+| YTD（1/1-8/24, baseline） | **+4.62%** | 2.24% | 11 | 45.5% | structured_stop=false, partial_tp=false |
+| YTD（1/1-8/24, v1.6.0） | +0.92% | 1.24% | 32 | 78.1% | structured_stop=true, partial_tp=true |
+
+**策略特征（v1.6.1）**：1h 周期低频交易（YTD 11 笔 baseline），依赖大赢单覆盖小亏损。structured_stop 将止损移至 S/R 位后频繁触发（SL 从 6 增至 18），partial_tp 截断大赢单，两种机制均严重拖累收益。当前配置：**关闭 structured_stop 和 partial_tp**。
+
 ### ETH/USDT (1h)
 
 | 回测区间 | 收益率 | 最大回撤 | 交易次数 | 胜率 | Profit Factor |
@@ -171,8 +220,10 @@
 | 30天（近期） | -7.20% | 8.52% | 11 | 36.4% | 0.14 |
 | 60天（近期） | -4.57% | 8.69% | 29 | 62.1% | 0.60 |
 | YTD（1/1-7/8, v1.5.0） | **+17.21%** | 8.69% | 62 | 66.1% | **1.80** |
+| YTD（1/1-8/24, baseline） | **+6.45%** | 0.96% | 32 | 78.1% | — |
+| YTD（1/1-8/24, v1.6.0） | +1.69% | 0.97% | 48 | 64.6% | — |
 
-**策略特征（v1.5.0）**：YTD 收益率 **+17.21%**（62 笔，胜率 66.1%，PF 1.80）。近期 30/60 天受震荡行情影响为负，上半年趋势期盈利是核心支撑。
+**策略特征（v1.6.1）**：YTD 收益率 +6.45%（baseline，structured_stop=false, partial_tp=true）。structured_stop 导致 SL 从 5 暴增至 29，收益从 +6.45% 降至 +1.69%，MDD 无改善。当前配置：**关闭 structured_stop，保留 partial_tp（2.0R/40%）**。
 
 ### SOL/USDT (5m)
 
@@ -183,6 +234,17 @@
 | YTD（1/1-7/8, v1.5.0） | **+7.34%** | 3.60% | 630 | 58.3% | 1.25 |
 
 **策略特征（v1.5.0）**：交易频率高（630 笔/YTD），胜率中等（~58%），MDD 控制在 3.6% 以内。FR 过滤是 SOL 的核心增强点：做空软惩罚大幅减少逆势交易。逐月盈利分布均匀，表现稳健。
+
+### v1.6.1 YTD 退出机制回测验证（2026-01-01 ~ 2026-08-24）
+
+| 币种 | 周期 | 配置 | 收益率 | MDD | 交易次数 | 胜率 | 说明 |
+|------|------|------|--------|-----|---------|------|------|
+| BTC/USDT | 1h | baseline | **+4.62%** | 2.24% | 11 | 45.5% | structured_stop=false, partial_tp=false |
+| BTC/USDT | 1h | v1.6.0 | +0.92% | 1.24% | 32 | 78.1% | structured_stop=true, partial_tp=true |
+| ETH/USDT | 1h | baseline | **+6.45%** | 0.96% | 32 | 78.1% | structured_stop=false, partial_tp=true |
+| ETH/USDT | 1h | v1.6.0 | +1.69% | 0.97% | 48 | 64.6% | structured_stop=true, partial_tp=true |
+
+**结论**：structured_stop 在 1h 周期将止损移至 S/R 位后频繁触发，两种策略收益均大幅下降，MDD 无改善。当前配置：BTC 1h 关闭 structured_stop + partial_tp；ETH 关闭 structured_stop，保留 partial_tp。
 
 ### v1.5.0 YTD 回测验证（2026-01-01 ~ 2026-07-08）
 
@@ -207,7 +269,7 @@
 | P0 | BTC/SOL 拒绝蜡烛配置定型 | v1.4.2 | 2026-06-09 | **已完成** |
 | P0 | Funding Rate 过滤（硬阈值阻断 + 软阈值扣分/降杠杆） | v1.5.0 | 2026-06-09 | **已完成** |
 | P0 | 退出管理与开仓过滤解耦（已有仓位止盈止损每根 bar 无条件执行） | v1.6.0 | 2026-08-24 | **已完成** |
-| P1 | 解耦后退出机制回测评估（structured_stop/partial_tp 重测，定位为锁定浮盈） | v1.6.1 | 2026-09-15 | 计划中 |
+| P1 | 解耦后退出机制回测评估（structured_stop/partial_tp 重测，定位为锁定浮盈） | v1.6.1 | 2026-08-24 | **已完成** |
 | P1 | SOL 5m 长周期回测验证（覆盖趋势期，验证第2次加仓效果） | v1.4.2 | 2026-06-15 | 已完成 |
 | P1 | Funding Rate 过滤回测验证（对比开启/关闭的关键指标） | v1.5.0 | 2026-06-12 | **已完成** |
 | P1 | PAXG 低波动品种适配 | v1.5.0 | 2026-06-30 | **已完成** |

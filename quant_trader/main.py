@@ -272,14 +272,21 @@ class Engine:
                                               parent_klines=parent_klines,
                                               funding_rate=funding_rate)
                     now = _time.time()
+                    # 退出管理信号优先执行，无冷却期（v1.6.0 解耦后需每 bar 无条件执行）
                     for signal in signals:
+                        if signal.action in ("update_stop", "partial_close"):
+                            await self._handle_signal(signal)
+                    # 开仓/全平信号，保持冷却期 + 每根 K 线只执行一个
+                    for signal in signals:
+                        if signal.action in ("update_stop", "partial_close"):
+                            continue  # 退出信号已处理
                         last = self._last_signal_time.get(signal.symbol, 0)
                         if now - last < self._signal_cooldown:
                             logger.debug("跳过冷却期内的信号: %s %s", signal.symbol, signal.signal_type)
                             continue
                         await self._handle_signal(signal)
                         self._last_signal_time[signal.symbol] = now
-                        break  # 每根K线只处理一个信号，与回测保持一致
+                        break  # 每根K线只处理一个开仓信号，与回测保持一致
 
                 # 定期打印账户概览（每 10 个周期）
                 if hasattr(self, "_cycle_count"):
