@@ -611,27 +611,8 @@ class SupportResistanceStrategy(BaseStrategy):
         atr_multiplier = params.get("atr_multiplier", 1.5)
         fallback_stop_pct = params.get("stop_loss_pct", 1.5)
 
-        # ---- 跟踪止损（向后兼容，结构化止损优先） ----
-        trailing_stop_enabled = params.get("trailing_stop_enabled", False)
-        trailing_breakeven_threshold_r = params.get("trailing_breakeven_threshold_r", 0.8)
-        trailing_breakeven_target_r = params.get("trailing_breakeven_target_r", 1.8)
-        trailing_start_r = params.get("trailing_start_r", 1.8)
-        trailing_distance_r = params.get("trailing_distance_r", 1.8)
-        trailing_wide_start_r = params.get("trailing_wide_start_r", 3.5)
-        trailing_wide_distance_r = params.get("trailing_wide_distance_r", 2.5)
-
-        # ---- 结构化止损 ----
-        structured_stop_enabled = params.get("structured_stop_enabled", False)
-        structured_stop_min_r = params.get("structured_stop_min_r", 1.5)
-        structured_stop_buffer_pct = params.get("structured_stop_buffer_pct", 0.3)
-        structured_stop_quality_buffer_pct = params.get("structured_stop_quality_buffer_pct", 0.2)
-
-        # ---- 部分止盈 ----
-        partial_tp_enabled = params.get("partial_tp_enabled", False)
-        partial_tp_levels = params.get("partial_tp_levels", [
-            {"r_threshold": 2.0, "close_pct": 0.4},
-            {"r_threshold": 3.5, "close_pct": 0.3},
-        ])
+        # ---- 退出管理参数（结构化止损 / 跟踪止损 / 部分止盈）已移至
+        # _manage_position_exits() 内从 params 读取，on_bar 开仓侧不再使用 ----
 
         # ---- 回踩确认 ----
         require_pullback = params.get("require_pullback_retest", True)
@@ -702,6 +683,20 @@ class SupportResistanceStrategy(BaseStrategy):
         parent_trend = trend_info["parent_trend"]
         parent_aligned = trend_info["parent_aligned"]
 
+        # 计算当前 ATR（退出管理与开仓过滤共用，提前计算以确保退出管理不受下方
+        # ADX / 震荡过滤的提前返回影响 —— 已有仓位的止盈止损每根 bar 都必须能执行）
+        atr_vals = atr(_chronological(klines), period=atr_period)
+        current_atr = float(atr_vals[-1]) if len(atr_vals) > 0 else 0.0
+        if current_atr != current_atr:  # NaN check
+            current_atr = 0.0
+
+        # 查找当前 symbol 的现有持仓（退出管理需要，提前查找；支持 dict 和 dataclass）
+        existing_pos = None
+        for pos in positions:
+            if _get_pos_attr(pos, "symbol") == symbol:
+                existing_pos = pos
+                break
+
         # ========== 2. ADX + DI 趋势强度过滤（DI方向在信号层检查）==========
         # 先用最低阈值（高质量位阈值）做全局 ADX 过滤
         adx_passed, current_adx, current_pdi, current_mdi, adx_reason = check_adx_and_di(
@@ -712,30 +707,35 @@ class SupportResistanceStrategy(BaseStrategy):
                 "ADX 过滤 %s %s: %s, ADX=%.1f, +DI=%.1f, -DI=%.1f, bias=%s",
                 symbol, timeframe, adx_reason, current_adx, current_pdi, current_mdi, bias,
             )
-            return []
-
-        # 计算当前 ATR（用于跟踪止损）
-        atr_vals = atr(_chronological(klines), period=atr_period)
-        current_atr = float(atr_vals[-1]) if len(atr_vals) > 0 else 0.0
-        if current_atr != current_atr:  # NaN check
-            current_atr = 0.0
+            # 开仓被 ADX 拦截，但已有仓位的退出管理（止盈/止损更新）不受影响
+            return self._manage_position_exits(
+                symbol, timeframe, klines, existing_pos, current_price,
+                current_atr, bias, leverage, params,
+            )
 
         # ========== 2b. 震荡过滤 —— ranging 时不交易（1h/4h 等长周期适用）==========
+        # 仅拦截开仓；已有仓位的退出管理不受影响（见下方提前返回处）
         # 5m 等高噪音周期不判断自身趋势，只依赖 parent 趋势方向
         if trend == "ranging" and timeframe not in ("1m", "3m", "5m", "1h"):
             logger.debug(
-                "震荡过滤 %s %s: 趋势=ranging，跳过",
+                "震荡过滤 %s %s: 趋势=ranging，跳过开仓",
                 symbol, timeframe,
             )
-            return []
+            return self._manage_position_exits(
+                symbol, timeframe, klines, existing_pos, current_price,
+                current_atr, bias, leverage, params,
+            )
 
         # 上级周期也是震荡时，不交易（无方向）
         if parent_trend == "ranging":
             logger.debug(
-                "上级震荡过滤 %s %s: parent_trend=ranging，跳过",
+                "上级震荡过滤 %s %s: parent_trend=ranging，跳过开仓",
                 symbol, timeframe,
             )
-            return []
+            return self._manage_position_exits(
+                symbol, timeframe, klines, existing_pos, current_price,
+                current_atr, bias, leverage, params,
+            )
 
         # ========== 2c. 震荡期仓位控制（v1.4.1+：增强上级周期锚定）==========
         use_parent_trend_override = params.get("use_parent_trend_override", False)
@@ -940,12 +940,7 @@ class SupportResistanceStrategy(BaseStrategy):
 
         signals = []
 
-        # 查找当前 symbol 的现有持仓（支持 dict 和 dataclass）
-        existing_pos = None
-        for pos in positions:
-            if _get_pos_attr(pos, "symbol") == symbol:
-                existing_pos = pos
-                break
+        # existing_pos 已在 ADX 过滤前提前查找（退出管理共用）
 
         # ========== 5. 做多信号 ==========
         # strict_bias_mode 只拦截逆势新开仓，但允许反向平仓
@@ -1539,131 +1534,15 @@ class SupportResistanceStrategy(BaseStrategy):
                 )
                 break
 
-        # ========== 6.5 结构化止损更新 + 部分止盈 ==========
-        if existing_pos and current_atr > 0:
-            is_long = _get_pos_attr(existing_pos, "side") == "buy"
-            entry = _get_pos_attr(existing_pos, "entry_price", 0)
-            current_stop = _get_pos_attr(existing_pos, "stop_loss", 0)
-            pos_quality = _get_pos_attr(existing_pos, "quality_score", 0.0)
-
-            # --- 结构化止损（优先于固定 trailing） ---
-            if structured_stop_enabled:
-                struct_levels = identify_support_resistance(
-                    klines,
-                    min_touches=min_touches,
-                    lookback=sr_lookback,
-                    volume_surge_ratio=1.5,
-                    require_rejection=require_rejection,
-                    bias=bias,
-                    trend_bonus_aligned=trend_bonus_aligned,
-                    trend_bonus_counter=trend_bonus_counter,
-                    adaptive_swing_window=adaptive_swing_window,
-                    swing_window_adx_threshold=swing_window_adx_threshold,
-                    swing_window_strong=swing_window_strong,
-                    swing_window_weak=swing_window_weak,
-                    use_order_blocks=use_order_blocks,
-                    use_fvg=use_fvg,
-                    rejection_min_wick_ratio=rejection_min_wick_ratio,
-                    rejection_max_body_ratio=rejection_max_body_ratio,
-                    use_vah_val=use_vah_val,
-                    value_area_pct=value_area_pct,
-                    vah_val_near_threshold_pct=vah_val_near_threshold_pct,
-                )
-                all_levels = struct_levels["support"] + struct_levels["resistance"]
-
-                new_stop = compute_structured_stop(
-                    entry_price=entry,
-                    current_price=current_price,
-                    current_atr=current_atr,
-                    current_stop=current_stop,
-                    is_long=is_long,
-                    levels=all_levels,
-                    min_r=structured_stop_min_r,
-                    buffer_pct=structured_stop_buffer_pct,
-                    quality_score=pos_quality,
-                    quality_buffer_pct=structured_stop_quality_buffer_pct,
-                )
-                if new_stop is not None:
-                    logger.info(
-                        "结构化止损更新 %s %s: %s 入场=%.2f 当前=%.2f 旧止损=%.2f 新止损=%.2f quality=%.1f",
-                        symbol, timeframe, "多" if is_long else "空",
-                        entry, current_price, current_stop, new_stop, pos_quality,
-                    )
-                    signals.append(Signal(
-                        strategy_name=self.name,
-                        symbol=symbol,
-                        timeframe=timeframe,
-                        signal_type="buy" if is_long else "sell",
-                        price=current_price,
-                        stop_loss=new_stop,
-                        leverage=leverage,
-                        action="update_stop",
-                        metadata={"structured_stop": True, "old_stop": current_stop},
-                    ))
-
-            # --- 固定 trailing stop（向后兼容，结构化止损关闭时生效） ---
-            elif trailing_stop_enabled:
-                new_stop = compute_trailing_stop(
-                    entry_price=entry,
-                    current_price=current_price,
-                    current_atr=current_atr,
-                    is_long=is_long,
-                    breakeven_threshold_r=trailing_breakeven_threshold_r,
-                    breakeven_target_r=trailing_breakeven_target_r,
-                    trail_start_r=trailing_start_r,
-                    trail_distance_r=trailing_distance_r,
-                    wide_trail_start_r=trailing_wide_start_r,
-                    wide_trail_distance_r=trailing_wide_distance_r,
-                )
-                if new_stop is not None:
-                    should_update = (is_long and new_stop > current_stop) or (not is_long and new_stop < current_stop)
-                    if should_update:
-                        logger.info(
-                            "跟踪止损更新 %s %s: %s 入场=%.2f 当前=%.2f 旧止损=%.2f 新止损=%.2f ATR=%.2f",
-                            symbol, timeframe, "多" if is_long else "空",
-                            entry, current_price, current_stop, new_stop, current_atr,
-                        )
-                        signals.append(Signal(
-                            strategy_name=self.name,
-                            symbol=symbol,
-                            timeframe=timeframe,
-                            signal_type="buy" if is_long else "sell",
-                            price=current_price,
-                            stop_loss=new_stop,
-                            leverage=leverage,
-                            action="update_stop",
-                            metadata={"trailing_stop": True, "old_stop": current_stop},
-                        ))
-
-            # --- 部分止盈 ---
-            if partial_tp_enabled:
-                profit = current_price - entry if is_long else entry - current_price
-                profit_r = profit / current_atr
-                triggered = set(_get_pos_attr(existing_pos, "partial_tp_triggered", []))
-
-                for tp_level in partial_tp_levels:
-                    r_thresh = tp_level["r_threshold"]
-                    close_pct = tp_level["close_pct"]
-                    level_id = f"{r_thresh}R"
-
-                    if profit_r >= r_thresh and level_id not in triggered:
-                        logger.info(
-                            "部分止盈 %s %s: %s 盈利=%.2fR (>= %.1fR) 平仓 %.0f%%",
-                            symbol, timeframe, "多" if is_long else "空",
-                            profit_r, r_thresh, close_pct * 100,
-                        )
-                        signals.append(Signal(
-                            strategy_name=self.name,
-                            symbol=symbol,
-                            timeframe=timeframe,
-                            signal_type="buy" if is_long else "sell",
-                            price=current_price,
-                            stop_loss=current_stop,
-                            leverage=leverage,
-                            action="partial_close",
-                            close_ratio=close_pct,
-                            metadata={"partial_tp_level": level_id, "profit_r": round(profit_r, 2)},
-                        ))
+        # ========== 6.5 退出管理（结构化止损 + 跟踪止损 + 部分止盈）==========
+        # 与开仓过滤解耦：退出管理在每根 bar 无条件执行 —— 即使上方 ADX / 震荡过滤
+        # 拦截了开仓，已有仓位的止盈止损仍会更新（拦截路径已在提前返回处直接调用
+        # _manage_position_exits 返回退出信号）。此处为非拦截路径的正常调用，
+        # 退出信号追加在开仓信号之后，保持原有 [开仓, 退出] 的信号顺序。
+        signals.extend(self._manage_position_exits(
+            symbol, timeframe, klines, existing_pos, current_price,
+            current_atr, bias, leverage, params,
+        ))
 
         # ========== 7. 过滤统计汇总 + 累计 ==========
         for direction, stats in filter_stats.items():
@@ -1683,6 +1562,184 @@ class SupportResistanceStrategy(BaseStrategy):
                 cum = self._filter_summary[direction]
                 for key in stats:
                     cum[key] += stats[key]
+
+        return signals
+
+    def _manage_position_exits(self, symbol, timeframe, klines, existing_pos,
+                               current_price, current_atr, bias, leverage,
+                               params) -> list:
+        """退出管理：结构化止损 / 跟踪止损 / 部分止盈。
+
+        与开仓过滤（ADX / 自身震荡 / 上级震荡 / strict_bias / Funding Rate）解耦：
+        只要存在已有持仓且 ATR 可用，每根 bar 都执行，确保已有仓位的止盈止损更新
+        不被开仓侧的过滤条件阻断。开仓被过滤拦截时，on_bar 的提前返回点会直接调用
+        本方法返回退出信号；正常路径则在开仓信号生成后调用，退出信号追加在开仓
+        信号之后以保持原有信号顺序。
+        """
+        signals = []
+        if not existing_pos or current_atr <= 0:
+            return signals
+
+        is_long = _get_pos_attr(existing_pos, "side") == "buy"
+        entry = _get_pos_attr(existing_pos, "entry_price", 0)
+        current_stop = _get_pos_attr(existing_pos, "stop_loss", 0)
+        pos_quality = _get_pos_attr(existing_pos, "quality_score", 0.0)
+
+        # ---- 退出管理所需参数（从 params 重新读取，保持本方法自包含）----
+        min_touches = params.get("min_touches", 3)
+        sr_lookback = params.get("sr_lookback", params.get("lookback", 100))
+        require_rejection = params.get("require_rejection_candle", False)
+        trend_bonus_aligned = params.get("trend_bonus_aligned", 1.3)
+        trend_bonus_counter = params.get("trend_bonus_counter", -0.5)
+        adaptive_swing_window = params.get("adaptive_swing_window", False)
+        swing_window_adx_threshold = params.get("swing_window_adx_threshold", 25.0)
+        swing_window_strong = params.get("swing_window_strong", 3)
+        swing_window_weak = params.get("swing_window_weak", 2)
+        use_order_blocks = params.get("use_order_blocks", False)
+        use_fvg = params.get("use_fvg", False)
+        rejection_min_wick_ratio = params.get("rejection_min_wick_ratio", 2.0)
+        rejection_max_body_ratio = params.get("rejection_max_body_ratio", 0.5)
+        use_vah_val = params.get("use_vah_val", False)
+        value_area_pct = params.get("value_area_pct", 0.70)
+        vah_val_near_threshold_pct = params.get("vah_val_near_threshold_pct", 0.005)
+
+        structured_stop_enabled = params.get("structured_stop_enabled", False)
+        structured_stop_min_r = params.get("structured_stop_min_r", 1.5)
+        structured_stop_buffer_pct = params.get("structured_stop_buffer_pct", 0.3)
+        structured_stop_quality_buffer_pct = params.get("structured_stop_quality_buffer_pct", 0.2)
+
+        trailing_stop_enabled = params.get("trailing_stop_enabled", False)
+        trailing_breakeven_threshold_r = params.get("trailing_breakeven_threshold_r", 0.8)
+        trailing_breakeven_target_r = params.get("trailing_breakeven_target_r", 1.8)
+        trailing_start_r = params.get("trailing_start_r", 1.8)
+        trailing_distance_r = params.get("trailing_distance_r", 1.8)
+        trailing_wide_start_r = params.get("trailing_wide_start_r", 3.5)
+        trailing_wide_distance_r = params.get("trailing_wide_distance_r", 2.5)
+
+        partial_tp_enabled = params.get("partial_tp_enabled", False)
+        partial_tp_levels = params.get("partial_tp_levels", [
+            {"r_threshold": 2.0, "close_pct": 0.4},
+            {"r_threshold": 3.5, "close_pct": 0.3},
+        ])
+
+        # --- 结构化止损（优先于固定 trailing） ---
+        if structured_stop_enabled:
+            struct_levels = identify_support_resistance(
+                klines,
+                min_touches=min_touches,
+                lookback=sr_lookback,
+                volume_surge_ratio=1.5,
+                require_rejection=require_rejection,
+                bias=bias,
+                trend_bonus_aligned=trend_bonus_aligned,
+                trend_bonus_counter=trend_bonus_counter,
+                adaptive_swing_window=adaptive_swing_window,
+                swing_window_adx_threshold=swing_window_adx_threshold,
+                swing_window_strong=swing_window_strong,
+                swing_window_weak=swing_window_weak,
+                use_order_blocks=use_order_blocks,
+                use_fvg=use_fvg,
+                rejection_min_wick_ratio=rejection_min_wick_ratio,
+                rejection_max_body_ratio=rejection_max_body_ratio,
+                use_vah_val=use_vah_val,
+                value_area_pct=value_area_pct,
+                vah_val_near_threshold_pct=vah_val_near_threshold_pct,
+            )
+            all_levels = struct_levels["support"] + struct_levels["resistance"]
+
+            new_stop = compute_structured_stop(
+                entry_price=entry,
+                current_price=current_price,
+                current_atr=current_atr,
+                current_stop=current_stop,
+                is_long=is_long,
+                levels=all_levels,
+                min_r=structured_stop_min_r,
+                buffer_pct=structured_stop_buffer_pct,
+                quality_score=pos_quality,
+                quality_buffer_pct=structured_stop_quality_buffer_pct,
+            )
+            if new_stop is not None:
+                logger.info(
+                    "结构化止损更新 %s %s: %s 入场=%.2f 当前=%.2f 旧止损=%.2f 新止损=%.2f quality=%.1f",
+                    symbol, timeframe, "多" if is_long else "空",
+                    entry, current_price, current_stop, new_stop, pos_quality,
+                )
+                signals.append(Signal(
+                    strategy_name=self.name,
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    signal_type="buy" if is_long else "sell",
+                    price=current_price,
+                    stop_loss=new_stop,
+                    leverage=leverage,
+                    action="update_stop",
+                    metadata={"structured_stop": True, "old_stop": current_stop},
+                ))
+
+        # --- 固定 trailing stop（向后兼容，结构化止损关闭时生效） ---
+        elif trailing_stop_enabled:
+            new_stop = compute_trailing_stop(
+                entry_price=entry,
+                current_price=current_price,
+                current_atr=current_atr,
+                is_long=is_long,
+                breakeven_threshold_r=trailing_breakeven_threshold_r,
+                breakeven_target_r=trailing_breakeven_target_r,
+                trail_start_r=trailing_start_r,
+                trail_distance_r=trailing_distance_r,
+                wide_trail_start_r=trailing_wide_start_r,
+                wide_trail_distance_r=trailing_wide_distance_r,
+            )
+            if new_stop is not None:
+                should_update = (is_long and new_stop > current_stop) or (not is_long and new_stop < current_stop)
+                if should_update:
+                    logger.info(
+                        "跟踪止损更新 %s %s: %s 入场=%.2f 当前=%.2f 旧止损=%.2f 新止损=%.2f ATR=%.2f",
+                        symbol, timeframe, "多" if is_long else "空",
+                        entry, current_price, current_stop, new_stop, current_atr,
+                    )
+                    signals.append(Signal(
+                        strategy_name=self.name,
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        signal_type="buy" if is_long else "sell",
+                        price=current_price,
+                        stop_loss=new_stop,
+                        leverage=leverage,
+                        action="update_stop",
+                        metadata={"trailing_stop": True, "old_stop": current_stop},
+                    ))
+
+        # --- 部分止盈 ---
+        if partial_tp_enabled:
+            profit = current_price - entry if is_long else entry - current_price
+            profit_r = profit / current_atr
+            triggered = set(_get_pos_attr(existing_pos, "partial_tp_triggered", []))
+
+            for tp_level in partial_tp_levels:
+                r_thresh = tp_level["r_threshold"]
+                close_pct = tp_level["close_pct"]
+                level_id = f"{r_thresh}R"
+
+                if profit_r >= r_thresh and level_id not in triggered:
+                    logger.info(
+                        "部分止盈 %s %s: %s 盈利=%.2fR (>= %.1fR) 平仓 %.0f%%",
+                        symbol, timeframe, "多" if is_long else "空",
+                        profit_r, r_thresh, close_pct * 100,
+                    )
+                    signals.append(Signal(
+                        strategy_name=self.name,
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        signal_type="buy" if is_long else "sell",
+                        price=current_price,
+                        stop_loss=current_stop,
+                        leverage=leverage,
+                        action="partial_close",
+                        close_ratio=close_pct,
+                        metadata={"partial_tp_level": level_id, "profit_r": round(profit_r, 2)},
+                    ))
 
         return signals
 

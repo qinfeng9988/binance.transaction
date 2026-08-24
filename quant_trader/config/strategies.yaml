@@ -151,11 +151,11 @@ strategies:
     trailing_distance_r: 1.8
     trailing_wide_start_r: 3.5
     trailing_wide_distance_r: 2.5
-    structured_stop_enabled: false
+    structured_stop_enabled: true   # 2026-08-24 开启（原 false）：盈利>=1.5R 后止损上移至最近支撑下方
     structured_stop_min_r: 1.5
     structured_stop_buffer_pct: 0.3
     structured_stop_quality_buffer_pct: 0.2
-    partial_tp_enabled: false
+    partial_tp_enabled: true   # 2026-08-24 开启（原 false）：2R 平 40%、3.5R 平 30%
     partial_tp_levels:
     - r_threshold: 2.0
       close_pct: 0.4
@@ -239,6 +239,10 @@ strategies:
     use_atr_stop: true
     atr_period: 14
     atr_multiplier: 2.8
+    structured_stop_enabled: true   # 2026-08-24 新增开启（原默认 false）：盈利>=1.5R 后止损上移至最近支撑下方
+    structured_stop_min_r: 1.5
+    structured_stop_buffer_pct: 0.3
+    structured_stop_quality_buffer_pct: 0.2
     partial_tp_enabled: true
     partial_tp_levels:
     - r_threshold: 2.0
