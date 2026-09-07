@@ -115,7 +115,20 @@
       "Bash(date -v-7d +\"%Y-%m-%d\")",
       "Bash(PGPASSWORD=123456 psql -h localhost -U postgres -d db_backtest -c \"SELECT MIN\\(timestamp\\), MAX\\(timestamp\\), COUNT\\(*\\) FROM klines WHERE symbol='SOL/USDT' AND timeframe='5m';\")",
       "Bash(PGPASSWORD=123456 psql *)",
-      "Bash(env)"
+      "Bash(env)",
+      "Bash(claude --version)",
+      "Bash(https_proxy=http://127.0.0.1:7897 http_proxy=http://127.0.0.1:7897 brew upgrade *)",
+      "Bash(awk 'NR>=550 && NR<=1585' quant_trader/strategies/s_r_levels.py)",
+      "Bash(git rm *)",
+      "Bash(echo \"=== exit: $? ===\")",
+      "Bash(openspec list *)",
+      "Bash(awk *)",
+      "Bash(openspec-cn --help)",
+      "Bash(openspec --help)",
+      "Bash(openspec-cn change *)",
+      "Bash(openspec-cn schemas *)",
+      "Bash(openspec-cn templates *)",
+      "Bash(openspec-cn validate *)"
     ]
   }
 }
