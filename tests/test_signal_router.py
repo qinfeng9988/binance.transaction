@@ -240,6 +240,31 @@ def test_handle_open_signal_uses_risk_adjusted_leverage():
     assert call_kwargs["leverage"] == 3  # 用风控调整后的值
 
 
+def test_handle_open_signal_reports_skipped_when_order_ignored():
+    """加仓被引擎忽略（order_type="ignored"）→ 上报 open_skipped 而非 open。"""
+    signal = make_signal(signal_type="buy")
+    paper_engine = MagicMock()
+    paper_engine.balance = 100000.0
+    paper_engine.positions.get.return_value = None
+    paper_engine.place_order.return_value = MagicMock(
+        order_id="PAPER-2", order_type="ignored",
+    )
+
+    risk_manager = MagicMock()
+    risk_manager.check_and_adjust.return_value = {
+        "approved": True, "leverage": 5, "stop_loss": 49000.0,
+    }
+    data_store = MagicMock()
+    data_store.insert_signal.return_value = 10
+
+    result = handle_signal(
+        signal=signal, paper_engine=paper_engine, data_store=data_store,
+        risk_manager=risk_manager, mode="paper",
+    )
+
+    assert result.action == "open_skipped"
+
+
 # ============================================================
 # 反向信号检测
 # ============================================================

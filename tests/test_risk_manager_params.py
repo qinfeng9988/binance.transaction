@@ -33,6 +33,7 @@ def make_signal(**kwargs) -> Signal:
 
 
 def make_risk_manager(**overrides) -> RiskManager:
+    clock = overrides.pop("clock", None)
     cfg = RiskConfig(
         leverage_limits={"major_coins": 5, "alt_coins": 3},
         major_symbols=["BTC", "ETH", "SOL"],
@@ -51,6 +52,8 @@ def make_risk_manager(**overrides) -> RiskManager:
     ds = MagicMock()
     ds.get_position_count.return_value = 0
     ds.get_open_positions.return_value = []
+    if clock is not None:
+        return RiskManager(cfg, ds, clock=clock)
     return RiskManager(cfg, ds)
 
 
@@ -177,3 +180,57 @@ def test_check_and_adjust_returns_downgrade_info_when_in_cooldown():
     # 但新开仓被拒。本测试只验证拒绝原因清晰
     result = rm.check_and_adjust(make_signal(signal_type="buy", symbol="BTC/USDT"))
     assert result["approved"] is False
+
+
+# ============================================================
+# 业务时钟注入（回测场景：风控时间必须跟随 bar 时间而非墙钟）
+# ============================================================
+
+def test_cooldown_end_based_on_injected_clock():
+    """冷静期到期时间 = 业务时钟当前值 + 冷静期时长。"""
+    t0 = datetime(2026, 8, 29, 12, 0, tzinfo=timezone.utc)
+    now = {"t": t0}
+    rm = make_risk_manager(
+        max_consecutive_losses=2, cooldown_duration_seconds=3600,
+        clock=lambda: now["t"],
+    )
+
+    rm.record_loss(2.0)
+    rm.record_loss(2.0)
+
+    assert rm._cooldown_end == t0 + timedelta(seconds=3600)
+
+
+def test_cooldown_expires_with_injected_clock():
+    """业务时钟推进过冷静期终点 → 冷静期解除。"""
+    t0 = datetime(2026, 8, 29, 12, 0, tzinfo=timezone.utc)
+    now = {"t": t0}
+    rm = make_risk_manager(
+        max_consecutive_losses=2, cooldown_duration_seconds=3600,
+        clock=lambda: now["t"],
+    )
+
+    rm.record_loss(2.0)
+    rm.record_loss(2.0)
+    assert rm._is_in_cooldown() is True
+
+    now["t"] = t0 + timedelta(seconds=3601)
+    assert rm._is_in_cooldown() is False
+
+    result = rm.check_and_adjust(make_signal(signal_type="buy", symbol="BTC/USDT"))
+    assert result["approved"] is True
+
+
+def test_daily_loss_resets_on_new_business_day():
+    """业务时钟跨天 → 日亏损计数重置。"""
+    t0 = datetime(2026, 8, 29, 23, 0, tzinfo=timezone.utc)
+    now = {"t": t0}
+    rm = make_risk_manager(clock=lambda: now["t"])
+
+    rm.record_loss(10.0)
+    rm.record_loss(10.0)
+    assert rm._daily_loss == pytest.approx(20.0)
+
+    now["t"] = t0 + timedelta(hours=2)  # 跨过 UTC 零点
+    rm.check_and_adjust(make_signal(signal_type="buy", symbol="BTC/USDT"))
+    assert rm._daily_loss == pytest.approx(0.0)

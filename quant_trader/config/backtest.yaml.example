@@ -1,0 +1,19 @@
+# Backtest Configuration
+# 模板文件：复制为 backtest.yaml 后填入真实值（backtest.yaml 已被 .gitignore 排除，勿提交）
+
+backtest_database:
+  host: "localhost"
+  port: 5432
+  dbname: "db_backtest"     # 独立回测库，与生产库隔离
+  user: "postgres"
+  password: "你的数据库密码"
+
+backtest:
+  initial_balance: 100000.0              # 回测初始资金
+  funding_rate_cache_dir: "quant_trader/data/funding_rates"
+  default_type: "swap"
+
+data_fetch:
+  current_tolerance: 0.001   # 当前周期 K 线允许缺失率
+  parent_tolerance: 0.005    # parent 周期允许缺失率
+  max_retries: 5             # API 补全最大重试次数

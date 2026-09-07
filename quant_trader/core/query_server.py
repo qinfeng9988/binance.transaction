@@ -14,6 +14,7 @@ import yaml
 from aiohttp import web
 
 from .serialization import json_dumps, serialize_status
+from .time_utils import DEFAULT_QUERY_TIMEFRAMES, validate_timeframes
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +22,16 @@ logger = logging.getLogger(__name__)
 _query_cache: dict[tuple[str, str], tuple[float, dict]] = {}
 _CACHE_TTL = 60  # 缓存有效期（秒）
 
-# 支持的时间粒度
-SUPPORTED_TIMEFRAMES = {"15m", "30m", "1h", "4h", "1d"}
+def _supported_timeframes(manual_config: dict) -> set[str]:
+    """从手动配置解析可查询周期；未配置时回退默认清单。
+
+    声明周期均在注册表内作合法性校验（复用 time_utils.validate_timeframes）。
+    """
+    tfs = manual_config.get("query_timeframes")
+    if not tfs:
+        return set(DEFAULT_QUERY_TIMEFRAMES)
+    validate_timeframes(tfs, where="manual_config.query_timeframes")
+    return set(tfs)
 
 
 def _load_manual_config() -> dict:
@@ -87,10 +96,14 @@ async def _query_handler(request: web.Request) -> web.Response:
     # 标准化 symbol
     symbol = _normalize_symbol(raw_symbol)
 
-    # 校验 timeframe
-    if timeframe not in SUPPORTED_TIMEFRAMES:
+    # 加载手动交易配置（周期允许清单与后续分析参数共用，避免重复读文件）
+    manual_config = _load_manual_config()
+
+    # 校验 timeframe（允许清单来自手动配置 query_timeframes，未配置时回退默认）
+    supported = _supported_timeframes(manual_config)
+    if timeframe not in supported:
         return web.json_response(
-            {"error": f"不支持的时间粒度: {timeframe}", "hint": f"支持的粒度: {', '.join(sorted(SUPPORTED_TIMEFRAMES))}"},
+            {"error": f"不支持的时间粒度: {timeframe}", "hint": f"支持的粒度: {', '.join(sorted(supported))}"},
             status=400,
             dumps=json_dumps,
         )
@@ -122,7 +135,7 @@ async def _query_handler(request: web.Request) -> web.Response:
         parent_klines = engine.kline_manager.get_klines(symbol, parent_tf)
 
     # 调用纯分析函数
-    from ..technical.support_resistance import analyze_sr_levels
+    from ..technical.support_resistance import analyze_sr_levels, compute_position_analysis
 
     analysis = analyze_sr_levels(klines, parent_klines=parent_klines)
 
@@ -133,8 +146,6 @@ async def _query_handler(request: web.Request) -> web.Response:
             dumps=json_dumps,
         )
 
-    # 加载手动交易配置
-    manual_config = _load_manual_config()
     atr_multiplier = manual_config.get("atr_multiplier", 5.5)
     show_levels = manual_config.get("show_levels", 5)
 
@@ -149,119 +160,15 @@ async def _query_handler(request: web.Request) -> web.Response:
     long_stop = current_price - atr_val * atr_multiplier if atr_val > 0 else None
     short_stop = current_price + atr_val * atr_multiplier if atr_val > 0 else None
 
-    # 持仓模式：计算结构化止损
+    # 持仓模式：计算结构化止损/止盈（与客户端兜底共用 compute_position_analysis）
     position_analysis = None
     if mode == "position" and entry_price and side:
         try:
             entry = float(entry_price)
             qty_val = float(qty) if qty else 0
-            is_long = side.lower() == "long"
-
-            # 计算当前盈亏
-            if is_long:
-                unrealized_pnl = (current_price - entry) * qty_val
-                profit_pct = (current_price - entry) / entry * 100 if entry != 0 else 0
-            else:
-                unrealized_pnl = (entry - current_price) * qty_val
-                profit_pct = (entry - current_price) / entry * 100 if entry != 0 else 0
-
-            # 计算结构化止损（基于 S/R 位）
-            all_levels = analysis["levels"]["support"] + analysis["levels"]["resistance"]
-            structured_stop = None
-
-            if is_long:
-                # 做多：找低于当前价的最近支撑
-                supports = [l for l in all_levels if l["price"] < current_price]
-                supports.sort(key=lambda x: x["price"], reverse=True)
-                if supports:
-                    s_price = supports[0]["price"]
-                    buffer_pct = manual_config.get("structured_stop", {}).get("buffer_pct", 0.3)
-                    structured_stop = s_price * (1 - buffer_pct / 100)
-                    if current_price > entry:
-                        # 浮盈：保本止损
-                        structured_stop = max(structured_stop, entry)
-                    else:
-                        # 浮亏：止损必须低于当前价
-                        structured_stop = min(structured_stop, current_price)
-            else:
-                # 做空：找高于当前价的最近压力
-                resistances = [l for l in all_levels if l["price"] > current_price]
-                resistances.sort(key=lambda x: x["price"])
-                if resistances:
-                    r_price = resistances[0]["price"]
-                    buffer_pct = manual_config.get("structured_stop", {}).get("buffer_pct", 0.3)
-                    structured_stop = r_price * (1 + buffer_pct / 100)
-                    if current_price < entry:
-                        # 浮盈：保本止损
-                        structured_stop = min(structured_stop, entry)
-                    else:
-                        # 浮亏：止损必须高于当前价
-                        structured_stop = max(structured_stop, current_price)
-
-            # 计算止盈目标（基于 S/R 位质量分排序）
-            tp1, tp1_source, tp1_quality = None, None, None
-            tp2, tp2_source, tp2_quality = None, None, None
-
-            if is_long:
-                # 做多止盈：从阻力位中按质量分降序取
-                tp_candidates = sorted(
-                    [l for l in all_levels if l["price"] > current_price],
-                    key=lambda x: x["quality_score"], reverse=True,
-                )
-                if len(tp_candidates) >= 1:
-                    tp1 = tp_candidates[0]["price"]
-                    tp1_source = "sr"
-                    tp1_quality = tp_candidates[0]["quality_score"]
-                if len(tp_candidates) >= 2:
-                    tp2 = tp_candidates[1]["price"]
-                    tp2_source = "sr"
-                    tp2_quality = tp_candidates[1]["quality_score"]
-                # ATR 备选
-                if tp1 is None and atr_val > 0:
-                    tp1 = entry + 2 * atr_val
-                    tp1_source = "atr"
-                if tp2 is None and atr_val > 0:
-                    tp2 = entry + 3 * atr_val
-                    tp2_source = "atr"
-            else:
-                # 做空止盈：从支撑位中按质量分降序取
-                tp_candidates = sorted(
-                    [l for l in all_levels if l["price"] < current_price],
-                    key=lambda x: x["quality_score"], reverse=True,
-                )
-                if len(tp_candidates) >= 1:
-                    tp1 = tp_candidates[0]["price"]
-                    tp1_source = "sr"
-                    tp1_quality = tp_candidates[0]["quality_score"]
-                if len(tp_candidates) >= 2:
-                    tp2 = tp_candidates[1]["price"]
-                    tp2_source = "sr"
-                    tp2_quality = tp_candidates[1]["quality_score"]
-                # ATR 备选
-                if tp1 is None and atr_val > 0:
-                    tp1 = entry - 2 * atr_val
-                    tp1_source = "atr"
-                if tp2 is None and atr_val > 0:
-                    tp2 = entry - 3 * atr_val
-                    tp2_source = "atr"
-
-            position_analysis = {
-                "entry_price": entry,
-                "current_price": current_price,
-                "side": side,
-                "quantity": qty_val,
-                "unrealized_pnl": round(unrealized_pnl, 2),
-                "profit_pct": round(profit_pct, 2),
-                "suggested_stop": round(structured_stop, 2) if structured_stop else None,
-                "atr_stop_long": round(long_stop, 2) if long_stop else None,
-                "atr_stop_short": round(short_stop, 2) if short_stop else None,
-                "tp1": round(tp1, 2) if tp1 else None,
-                "tp1_source": tp1_source,
-                "tp1_quality": round(tp1_quality, 2) if tp1_quality else None,
-                "tp2": round(tp2, 2) if tp2 else None,
-                "tp2_source": tp2_source,
-                "tp2_quality": round(tp2_quality, 2) if tp2_quality else None,
-            }
+            position_analysis = compute_position_analysis(
+                analysis, current_price, entry, side, qty_val, manual_config,
+            )
         except (ValueError, TypeError):
             return web.json_response(
                 {"error": "持仓参数格式错误: entry_price, qty 必须为数字"},

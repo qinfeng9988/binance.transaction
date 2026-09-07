@@ -195,7 +195,8 @@ def test_insert_entry_injects_run_id():
 
     entry = EntryRecord(
         position_id=1, seq=1, orig_qty=0.1, remaining_qty=0.1,
-        entry_price=50000.0, entry_fee=2.0, order_id="PAPER-1",
+        entry_price=50000.0, entry_time=datetime.now(tz=timezone.utc),
+        entry_fee=2.0, order_id="PAPER-1",
         signal_id=5, status="open",
     )
 
@@ -214,7 +215,8 @@ def test_insert_closure_injects_run_id():
     closure = ClosureRecord(
         entry_id=100, close_qty=0.05, entry_price=50000.0,
         exit_price=51000.0, pnl=50.0, fee=1.0,
-        reason="partial_close", order_id="PAPER-2", signal_id=5,
+        reason="partial_close", close_time=datetime.now(tz=timezone.utc),
+        order_id="PAPER-2", signal_id=5,
     )
 
     store.insert_closure(closure)

@@ -138,3 +138,7 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 backtest_results/
+
+# 含真实密钥的本地配置（用 *.example 模板复制后使用，勿提交）
+quant_trader/config/exchanges.yaml
+quant_trader/config/backtest.yaml

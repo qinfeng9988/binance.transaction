@@ -34,7 +34,7 @@ class SignalResult:
         "update_stop", "update_stop_skipped",
         "partial_close", "partial_close_skipped",
         "close", "close_skipped",
-        "open", "risk_rejected",
+        "open", "open_skipped", "risk_rejected",
     ]
     pnl: float | None = None
     order_id: str | None = None
@@ -193,6 +193,12 @@ def handle_signal(
         logger.warning("[下单失败] %s %s 余额不足", signal.symbol, signal.signal_type)
         return SignalResult(
             signal_id=signal_id, action="risk_rejected", reason="余额不足",
+        )
+
+    # 加仓被引擎忽略（已达 max_additions 上限）：不算成交
+    if order.order_type == "ignored":
+        return SignalResult(
+            signal_id=signal_id, action="open_skipped", order_id=order.order_id,
         )
 
     trade_logger = logging.getLogger("trades")

@@ -79,6 +79,15 @@ class SignalRecord:
         self.price = float(self.price)
         self.stop_loss = float(self.stop_loss)
         self.leverage = int(self.leverage)
+        # 可空指标字段同样可能来自 numpy 标量（如 bollinger 的 round()），
+        # 转为原生类型，避免 psycopg2 适配 np.float64 时混入 "np.float64(...)"。
+        for _f in ("quality_score", "adx", "plus_di", "minus_di", "rsi",
+                   "volume_ratio", "atr", "entry_threshold_pct", "distance_pct"):
+            _v = getattr(self, _f)
+            if _v is not None:
+                setattr(self, _f, float(_v))
+        if self.is_counter_trend is not None:
+            self.is_counter_trend = bool(self.is_counter_trend)
 
 
 @dataclass
@@ -752,6 +761,16 @@ class DataStore:
                  position.partial_tp_triggered),
             )
             return cur.fetchone()[0]
+
+    def get_total_entry_fees(self) -> float:
+        """全部入场明细的入场手续费总额（用于重启时重建余额）。
+
+        position_entries 只保留未归档持仓的明细（归档时整表迁移），
+        直接 SUM 即可覆盖 open + closed 持仓。
+        """
+        with self._get_conn().cursor() as cur:
+            cur.execute("SELECT COALESCE(SUM(entry_fee), 0) FROM position_entries")
+            return float(cur.fetchone()[0] or 0)
 
     def update_position(self, symbol: str, quantity: float, entry_price: float,
                         stop_loss: float = 0.0, closed_quantity: float = None,

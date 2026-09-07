@@ -59,6 +59,7 @@ STRATEGY_REGISTRY = {
     "support_resistance_eth": SupportResistanceStrategy,
     "support_resistance_eth_5m": SupportResistanceStrategy,
     "support_resistance_sol": SupportResistanceStrategy,
+    "support_resistance_bnb": SupportResistanceStrategy,
     "support_resistance_paxg": SupportResistanceStrategy,
     "bollinger_bands_paxg": BollingerBandsStrategy,
 }
@@ -184,8 +185,12 @@ def run_backtest_loop(
     parent_lookback: int | None = None,
     signal_cooldown_seconds: int = 220,
     window_size: int = 150,
+    position_value_ratio: float = 0.1,
 ) -> dict:
     """驱动 K 线迭代器 + signal_router 的核心循环。
+
+    参数:
+        position_value_ratio: 开仓仓位占余额比例（来自策略参数，默认 0.1）
 
     返回:
         含 'equity_curve' 和 'trades' 的统计字典
@@ -194,6 +199,7 @@ def run_backtest_loop(
 
     equity_curve: list[tuple[datetime, float]] = []
     last_signal_time: float = 0.0
+    last_funding_ts: int | None = None
 
     for event in kline_driver.iter_klines(
         symbol=symbol,
@@ -208,8 +214,24 @@ def run_backtest_loop(
         bar_close = bar_close_time(event.kline["timestamp"], timeframe)
         paper_engine.set_current_time(bar_close)
 
-        # 1. 价格更新 → 触发止损检查
-        paper_engine.update_prices(symbol, event.kline["close"], backtest_ds)
+        # 0.5 funding 结算：跨越 funding 事件时对持仓结算
+        # （正费率多头付、空头收；负费率相反）。事件跨越当根 bar 时若持仓
+        # 存在即结算——按 bar 粒度近似的确定性规则；当前策略周期均为
+        # 5m/15m/1h（< 8h funding 间隔），每根 bar 至多跨越一次事件。
+        if event.funding_ts is not None and event.funding_ts != last_funding_ts \
+                and event.funding_rate is not None:
+            if symbol in paper_engine.positions:
+                paper_engine.apply_funding(symbol, event.funding_rate)
+            last_funding_ts = event.funding_ts
+
+        # 1. 价格更新 → 触发止损检查（用 bar 高低价做 intrabar 判断，
+        #    盘中击穿止损即触发，成交价为止损价/跳空开盘价）
+        paper_engine.update_prices(
+            symbol, event.kline["close"], backtest_ds,
+            bar_open=event.kline["open"],
+            bar_high=event.kline["high"],
+            bar_low=event.kline["low"],
+        )
 
         # 2. 记录权益曲线
         equity = paper_engine.get_total_equity()
@@ -256,6 +278,7 @@ def run_backtest_loop(
                 data_store=backtest_ds,
                 risk_manager=risk_manager,
                 mode="paper",
+                position_value_ratio=position_value_ratio,
             )
             last_signal_time = ts_epoch
             break  # 每根 K 线只执行一个开仓信号
@@ -294,6 +317,8 @@ def print_basic_report(paper_engine: PaperTradingEngine, equity_curve: list, run
     print("\n" + "=" * 60)
     print(f"回测报告  run_id: {run_id}")
     print("=" * 60)
+    entry_fees = summary.get("total_entry_fees", 0.0)
+    funding = summary.get("total_funding_paid", 0.0)
     print(f"初始资金:           {summary['initial_balance']:,.2f} USDT")
     print(f"期末资金:           {summary['balance']:,.2f} USDT")
     print(f"总权益:             {summary['total_equity']:,.2f} USDT")
@@ -301,8 +326,13 @@ def print_basic_report(paper_engine: PaperTradingEngine, equity_curve: list, run
     print(f"最大回撤:           {max_dd:.2f}%")
     print(f"总交易次数:         {summary['total_trades']}")
     print(f"胜率:               {summary['win_rate']:.1f}%")
-    print(f"总盈亏:             {summary['total_pnl']:+.2f} USDT")
-    print(f"总手续费:           {summary['total_fees']:.2f} USDT")
+    print(f"总盈亏(已扣平仓费): {summary['total_pnl']:+.2f} USDT")
+    print(f"总手续费:           平仓 {summary['total_fees']:.2f} + 开仓 {entry_fees:.2f} "
+          f"= {summary['total_fees'] + entry_fees:.2f} USDT")
+    if funding:
+        print(f"总 Funding(净支出): {funding:.2f} USDT")
+    net = summary["total_pnl"] - entry_fees - funding
+    print(f"净盈亏(全部成本后): {net:+.2f} USDT ← 与 期末资金−初始资金 一致")
     print("=" * 60)
 
 
@@ -435,11 +465,13 @@ async def run(args):
     adapter.close()
 
     # 初始化引擎、风控、策略
+    # 风控使用引擎的业务时钟（bar 收盘时间），冷静期/日重置按回测时间推进
     paper_engine = PaperTradingEngine(
         initial_balance=args.initial_balance,
         default_type=backtest_cfg.default_type,
     )
-    risk_manager = RiskManager(config.risk, backtest_ds)
+    risk_manager = RiskManager(config.risk, backtest_ds, clock=paper_engine.now)
+    paper_engine.risk_manager = risk_manager
     strategy = strategy_cls(strategy_cfg.name, strategy_cfg.params, config)
 
     # 加载 funding rate 缓存
@@ -453,7 +485,11 @@ async def run(args):
     )
 
     # 运行回测
-    logger.info("开始回测 %s %s %s ~ %s", args.symbol, args.timeframe, args.start, args.end)
+    # 仓位比例从策略参数读取（与实盘 paper 的 position_value_ratio_for 同语义）
+    position_value_ratio = float(strategy_cfg.params.get("position_value_ratio", 0.1))
+    logger.info("开始回测 %s %s %s ~ %s (仓位比例 %.1f%%)",
+                args.symbol, args.timeframe, args.start, args.end,
+                position_value_ratio * 100)
     result = run_backtest_loop(
         symbol=args.symbol, timeframe=args.timeframe,
         strategy=strategy, paper_engine=paper_engine,
@@ -462,6 +498,7 @@ async def run(args):
         funding_records=funding_records,
         parent_lookback=parent_lookback,
         window_size=window_size,
+        position_value_ratio=position_value_ratio,
     )
 
     # 输出报告

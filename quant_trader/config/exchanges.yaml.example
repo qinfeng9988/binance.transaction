@@ -1,0 +1,29 @@
+# Binance Exchange Configuration
+# 模板文件：复制为 exchanges.yaml 后填入真实值（exchanges.yaml 已被 .gitignore 排除，勿提交）
+# 注意：历史提交中曾含真实密钥，如已推送到远端请务必轮换 API Key！
+
+binance:
+  api_key: "你的API Key"
+  api_secret: "你的API Secret"
+  sandbox: false  # Binance 合约测试网已废弃，使用真实 API + paper trading
+  default_type: "swap"  # "spot" or "swap" (futures)
+  proxy: "http://127.0.0.1:7897"  # HTTP 代理（Clash Verge），不需要则置空
+  options:
+    defaultType: "swap"
+
+# Database Configuration
+database:
+  host: "localhost"
+  port: 5432
+  dbname: "db_quant_trader"
+  user: "postgres"
+  password: "你的数据库密码"
+
+# Status HTTP service configuration
+status:
+  host: "127.0.0.1"
+  port: 58080
+
+# K-line fetch buffer
+kline:
+  buffer_seconds: 1

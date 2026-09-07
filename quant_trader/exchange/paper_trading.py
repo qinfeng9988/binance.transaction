@@ -60,6 +60,9 @@ class MockPosition:
     close_count: int = 0               # 平仓次数
     entry_seq_counter: int = 0         # 入场明细序号计数器
     partial_tp_triggered: list = field(default_factory=list)  # 已触发的部分止盈级别
+    # 累计占用保证金（按每笔订单自身杠杆累加）。加仓单杠杆可能低于持仓首笔
+    # 杠杆（FR 降杠杆/震荡降仓），返还保证金必须以此为准才能守恒
+    margin_used: float = 0.0
 
 
 class PaperTradingEngine:
@@ -69,32 +72,59 @@ class PaperTradingEngine:
     FEE_RATE_SPOT = 0.001
     FEE_RATE_SWAP = 0.0004
 
-    def __init__(self, initial_balance: float = 100000.0, default_type: str = "swap"):
+    def __init__(self, initial_balance: float = 100000.0, default_type: str = "swap",
+                 risk_manager=None):
         """初始化模拟账户。
 
         参数:
             initial_balance: 初始资金（USDT）
             default_type: "spot"(现货) 或 "swap"(合约)
+            risk_manager: RiskManager 实例（可选）。传入后每次平仓（含止损、
+                反向平仓、部分平仓）会按实现盈亏调用 record_loss/record_win，
+                驱动连续亏损冷静期与日亏损限制。
         """
         self.initial_balance = initial_balance
         self.balance = initial_balance           # 可用余额
         self.default_type = default_type
+        self.risk_manager = risk_manager
         self.orders: list[MockOrder] = []        # 订单历史
         self.positions: dict[str, MockPosition] = {}  # 当前持仓，key=symbol
         self.trades_closed: list[dict] = []      # 已平仓记录
         self._order_counter = 0
         self.fee_rate = self.FEE_RATE_SWAP if default_type == "swap" else self.FEE_RATE_SPOT
         self._current_time: datetime | None = None
+        self.total_funding_paid: float = 0.0    # 累计 funding 净支出（正数 = 净付出）
+        self.total_entry_fees: float = 0.0      # 累计开仓/加仓手续费（开仓时已从余额扣除）
 
     def set_current_time(self, bar_close_time: datetime):
         """设置当前业务时间（回测时由驱动器调用）。"""
         self._current_time = bar_close_time
+
+    def now(self) -> datetime:
+        """返回当前业务时间（公共访问器，供风控等模块做业务时钟）。"""
+        return self._now()
 
     def _now(self) -> datetime:
         """返回当前业务时间。回测时返回 bar 收盘时间，实盘返回真实 UTC 时间。"""
         if self._current_time is not None:
             return self._current_time
         return datetime.now(tz=timezone.utc)
+
+    def _notify_risk(self, net_pnl: float, entry_price: float,
+                     quantity: float, leverage: int):
+        """平仓后通知风控：亏损计入连续亏损/日亏损，盈利重置连续亏损计数。
+
+        loss_pct 口径为亏损占保证金百分比，与 RiskManager.record_loss 一致。
+        """
+        if self.risk_manager is None:
+            return
+        margin = (entry_price * quantity) / leverage if leverage > 0 else 0.0
+        if margin <= 0:
+            return
+        if net_pnl < 0:
+            self.risk_manager.record_loss(-net_pnl / margin * 100)
+        else:
+            self.risk_manager.record_win()
 
     def place_order(self, symbol: str, side: str, amount: float,
                     price: float, leverage: int = 1,
@@ -162,12 +192,25 @@ class PaperTradingEngine:
         )
 
         # 反向信号平仓：close_position 已自行归还保证金+盈亏，
-        # 但 place_order 开头扣的新订单保证金需退还
-        if order.order_type in ("close", "stop_loss_close", "take_profit_close", "end_of_data"):
+        # 但 place_order 开头扣的新订单保证金需退还；
+        # 加仓被忽略（达 max_additions 上限）同理，无任何持仓变化，全额退还
+        if order.order_type in ("close", "stop_loss_close", "take_profit_close", "end_of_data", "ignored"):
             if self.default_type == "swap":
                 self.balance += (required_margin + fee)
             else:
                 self.balance += (price * amount + fee)
+
+        # 被忽略的加仓单不产生订单记录（无持仓变化，避免幽灵负数量订单行）
+        if order.order_type == "ignored":
+            logger.info(
+                "[模拟] 忽略 %s %s 加仓单: 已达最大加仓次数，退还保证金+手续费 %.2f",
+                symbol, side, required_margin + fee if self.default_type == "swap" else price * amount + fee,
+            )
+            return order
+
+        # 开仓/加仓手续费已随保证金扣除，累计用于报告对账
+        if order.order_type in ("open", "add"):
+            self.total_entry_fees += fee
 
         # 同步订单到数据库
         if data_store:
@@ -260,8 +303,15 @@ class PaperTradingEngine:
 
         # 3. 从已平仓交易推算余额
         # 初始余额 + 累计盈亏 = 当前可用余额（不含未平仓部分的占用资金）
+        # 再扣除全部入场手续费：pnl 只含平仓费，入场费在开仓时从余额扣除
+        # 且从不回流，不补扣会导致每次重启余额虚增
         total_closed_pnl = sum(t["pnl"] for t in self.trades_closed)
-        self.balance += total_closed_pnl
+        total_entry_fees = 0.0
+        try:
+            total_entry_fees = data_store.get_total_entry_fees()
+        except AttributeError:
+            logger.debug("data_store 无 get_total_entry_fees，跳过入场手续费补扣")
+        self.balance += total_closed_pnl - (total_entry_fees or 0.0)
 
         # 4. 加载当前持仓
         open_positions = data_store.get_open_positions()
@@ -280,6 +330,8 @@ class PaperTradingEngine:
                 closed_quantity=pos.closed_quantity,
                 close_count=pos.close_count,
                 partial_tp_triggered=pos.partial_tp_triggered.split(",") if pos.partial_tp_triggered else [],
+                # DB 未存逐笔保证金，用均价×数量/杠杆近似（混合杠杆加仓时有微小偏差）
+                margin_used=(pos.entry_price * pos.quantity) / pos.leverage,
             )
             self.positions[pos.symbol] = mock_pos
 
@@ -353,9 +405,12 @@ class PaperTradingEngine:
         fee = exit_value * self.fee_rate
         net_pnl = pnl - fee
 
-        # 返还保证金 + 盈亏
+        # 通知风控（连续亏损冷静期 / 日亏损累计）
+        self._notify_risk(net_pnl, entry_price, quantity, leverage)
+
+        # 返还保证金（全额：累计占用额）+ 盈亏
         if self.default_type == "swap":
-            margin = (entry_price * quantity) / leverage
+            margin = pos.margin_used if pos.margin_used > 0 else (entry_price * quantity) / leverage
             self.balance += margin + net_pnl
         else:
             self.balance += exit_value - fee
@@ -410,13 +465,20 @@ class PaperTradingEngine:
         )
         return net_pnl
 
-    def update_prices(self, symbol: str, current_price: float, data_store=None):
+    def update_prices(self, symbol: str, current_price: float, data_store=None,
+                      bar_open: float | None = None,
+                      bar_high: float | None = None,
+                      bar_low: float | None = None):
         """更新某币种的当前价格，重新计算未实现盈亏。
 
         参数:
             symbol: 交易对
             current_price: 最新价格
             data_store: DataStore 实例（可选，用于同步止损平仓到 DB）
+            bar_open/bar_high/bar_low: 当前 bar 的 OHLC（回测传入）。
+                提供时用 bar 的 high/low 做 intrabar 止损判断，成交价为止损价
+                （开盘已跳空穿越止损时用开盘价，更贴近真实止损单成交）；
+                不提供时（实盘逐笔更新）保持原行为，用现价判断并以现价成交。
         """
         if symbol not in self.positions:
             return
@@ -431,13 +493,65 @@ class PaperTradingEngine:
 
         # 检查止损
         if pos.stop_loss > 0:
-            if (pos.side == "buy" and current_price <= pos.stop_loss) or \
-               (pos.side == "sell" and current_price >= pos.stop_loss):
-                logger.info("[模拟] 触发止损: %s 现价=%.2f 止损=%.2f",
-                            symbol, current_price, pos.stop_loss)
-                pnl = self.close_position(symbol, current_price, data_store,
-                                          order_type="stop_loss_close",
-                                          signal_id=None)
+            if bar_high is not None and bar_low is not None:
+                # 回测 intrabar 模式：盘中击穿即触发
+                if pos.side == "buy" and bar_low <= pos.stop_loss:
+                    fill_price = min(bar_open, pos.stop_loss) if bar_open is not None else pos.stop_loss
+                    logger.info("[模拟] 盘中触发止损: %s bar低=%.2f 止损=%.2f 成交=%.2f",
+                                symbol, bar_low, pos.stop_loss, fill_price)
+                    self.close_position(symbol, fill_price, data_store,
+                                        order_type="stop_loss_close", signal_id=None)
+                    return
+                if pos.side == "sell" and bar_high >= pos.stop_loss:
+                    fill_price = max(bar_open, pos.stop_loss) if bar_open is not None else pos.stop_loss
+                    logger.info("[模拟] 盘中触发止损: %s bar高=%.2f 止损=%.2f 成交=%.2f",
+                                symbol, bar_high, pos.stop_loss, fill_price)
+                    self.close_position(symbol, fill_price, data_store,
+                                        order_type="stop_loss_close", signal_id=None)
+                    return
+            else:
+                # 实盘模式：现价判断
+                if (pos.side == "buy" and current_price <= pos.stop_loss) or \
+                   (pos.side == "sell" and current_price >= pos.stop_loss):
+                    logger.info("[模拟] 触发止损: %s 现价=%.2f 止损=%.2f",
+                                symbol, current_price, pos.stop_loss)
+                    self.close_position(symbol, current_price, data_store,
+                                        order_type="stop_loss_close",
+                                        signal_id=None)
+
+    def apply_funding(self, symbol: str, rate_pct: float) -> float | None:
+        """对持仓结算一笔 funding。
+
+        正费率：多头付费、空头收费；负费率相反。
+        金额 = 名义价值（现价 × 数量）× rate_pct / 100，直接影响可用余额。
+
+        参数:
+            symbol: 交易对
+            rate_pct: funding rate（百分比，如 0.01 表示 0.01%）
+
+        返回:
+            余额变动（负 = 账户支出），无持仓时返回 None
+        """
+        pos = self.positions.get(symbol)
+        if pos is None:
+            return None
+
+        notional_price = pos.current_price if pos.current_price > 0 else pos.entry_price
+        notional = notional_price * pos.quantity
+        payment = notional * rate_pct / 100  # 正 = 多头应付
+
+        if pos.side == "buy":
+            delta = -payment
+        else:
+            delta = payment
+        self.balance += delta
+        self.total_funding_paid -= delta  # delta 为负（支出）时累计为正
+
+        logger.debug(
+            "[模拟] funding 结算 %s rate=%.4f%% 名义=%.2f 余额变动=%.4f",
+            symbol, rate_pct, notional, delta,
+        )
+        return delta
 
     def get_position_count(self) -> int:
         """当前持仓数。"""
@@ -448,7 +562,8 @@ class PaperTradingEngine:
         equity = self.balance
         for pos in self.positions.values():
             if self.default_type == "swap":
-                margin = (pos.entry_price * pos.quantity) / pos.leverage
+                margin = pos.margin_used if pos.margin_used > 0 \
+                    else (pos.entry_price * pos.quantity) / pos.leverage
                 equity += margin + pos.unrealized_pnl
             else:
                 equity += pos.unrealized_pnl
@@ -472,6 +587,8 @@ class PaperTradingEngine:
             "win_rate": round(len(wins) / len(self.trades_closed) * 100, 2) if self.trades_closed else 0,
             "total_pnl": round(closed_pnl, 2),
             "total_fees": round(total_fees, 2),
+            "total_entry_fees": round(self.total_entry_fees, 2),
+            "total_funding_paid": round(self.total_funding_paid, 4),
             "return_pct": round((self.get_total_equity() - self.initial_balance) / self.initial_balance * 100, 2),
         }
 
@@ -520,8 +637,14 @@ class PaperTradingEngine:
         fee = exit_value * self.fee_rate
         net_pnl = pnl - fee
 
+        # 通知风控（部分平仓同样计入连续亏损/盈利事件）
+        self._notify_risk(net_pnl, entry, close_qty, pos.leverage)
+
         if self.default_type == "swap":
-            margin = (entry * close_qty) / pos.leverage
+            # 按已占用保证金的比例返还（混合杠杆加仓时与逐笔扣减额守恒）
+            margin = pos.margin_used * (close_qty / qty) if pos.margin_used > 0 \
+                else (entry * close_qty) / pos.leverage
+            pos.margin_used -= margin
             self.balance += margin + net_pnl
         else:
             self.balance += close_price * close_qty - fee
@@ -652,6 +775,18 @@ class PaperTradingEngine:
             existing.entry_price = avg_price
             existing.quantity = total_qty
             existing.add_count += 1
+            # 保证金按本笔订单自身杠杆累加（返还时按 margin_used 比例，保证守恒）
+            if self.default_type == "swap":
+                existing.margin_used += (order.price * order.amount) / order.leverage
+            # 加仓时止损只能向有利方向移动（不把已上移/下移的跟踪止损改回去），
+            # 内存与 DB 保持一致
+            if stop_loss > 0:
+                if existing.stop_loss == 0:
+                    existing.stop_loss = stop_loss
+                elif (existing.side == "buy" and stop_loss > existing.stop_loss) or \
+                        (existing.side == "sell" and stop_loss < existing.stop_loss):
+                    existing.stop_loss = stop_loss
+            stop_loss = existing.stop_loss
             # 写入 entry 明细
             existing.entry_seq_counter += 1
             self._insert_entry(data_store, existing.position_id,
@@ -692,6 +827,8 @@ class PaperTradingEngine:
             stop_loss=stop_loss,
             position_id=position_id,
             entry_seq_counter=1,
+            margin_used=(order.price * order.amount) / order.leverage
+            if self.default_type == "swap" else 0.0,
         )
         # 写入 entry 明细（首次开仓 seq=1）
         self._insert_entry(data_store, position_id, 1, order.amount,

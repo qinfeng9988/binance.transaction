@@ -12,6 +12,7 @@
 """
 
 import logging
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
@@ -20,17 +21,21 @@ logger = logging.getLogger(__name__)
 class RiskManager:
     """风控检查器。"""
 
-    def __init__(self, risk_config, data_store):
+    def __init__(self, risk_config, data_store, clock: Callable[[], datetime] | None = None):
         """初始化风控。
 
         参数:
             risk_config: RiskConfig 对象
             data_store: DataStore 实例
+            clock: 业务时钟（返回 UTC datetime），默认真实墙钟。
+                回测必须传入跟随 bar 时间的时钟，否则冷静期/日重置
+                按真实时间计算，回测几分钟跑完数月，行为完全失真。
         """
         self._config = risk_config
         self._data_store = data_store
+        self._clock = clock or (lambda: datetime.now(tz=timezone.utc))
         self._daily_loss = 0.0
-        self._last_reset_date = datetime.now(tz=timezone.utc).date()
+        self._last_reset_date = self._clock().date()
 
         # 连续亏损/冷静期状态
         self._consecutive_losses = 0
@@ -81,9 +86,10 @@ class RiskManager:
                 "[风控] %s 新开仓被拒：连续亏损 %d 次，冷静期至 %s",
                 signal.symbol, self._consecutive_losses, self._cooldown_end,
             )
+            remaining = int((self._cooldown_end - self._clock()).total_seconds())
             return {
                 "approved": False,
-                "reason": f"连续亏损冷静期（剩 {int((self._cooldown_end - datetime.now(tz=timezone.utc)).total_seconds())} 秒）",
+                "reason": f"连续亏损冷静期（剩 {remaining} 秒）",
             }
 
         cfg = self._config
@@ -159,7 +165,7 @@ class RiskManager:
         """当前是否处于连续亏损冷静期内。"""
         if self._cooldown_end is None:
             return False
-        return datetime.now(tz=timezone.utc) < self._cooldown_end
+        return self._clock() < self._cooldown_end
 
     def record_loss(self, loss_pct: float):
         """记录亏损（平仓后调用）。
@@ -174,7 +180,7 @@ class RiskManager:
         )
 
         if self._consecutive_losses >= self.max_consecutive_losses and self._cooldown_end is None:
-            self._cooldown_end = datetime.now(tz=timezone.utc) + timedelta(seconds=self.cooldown_duration_seconds)
+            self._cooldown_end = self._clock() + timedelta(seconds=self.cooldown_duration_seconds)
             logger.warning(
                 "[风控] 连续亏损 %d 次达阈值，进入冷静期 %d 秒，至 %s",
                 self._consecutive_losses, self.cooldown_duration_seconds, self._cooldown_end,
@@ -189,7 +195,7 @@ class RiskManager:
 
     def _reset_if_new_day(self):
         """新的一天重置日亏损计数器。"""
-        today = datetime.now(tz=timezone.utc).date()
+        today = self._clock().date()
         if today != self._last_reset_date:
             logger.info("[风控] 新交易日，重置日亏损计数器（昨日累计 %.2f%%）", self._daily_loss)
             self._daily_loss = 0.0

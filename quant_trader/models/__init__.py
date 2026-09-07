@@ -33,7 +33,20 @@ class Signal:
     distance_pct: float | None = None
 
     def __post_init__(self):
-        """将 numpy 等外部数值类型转为 Python 原生类型，避免数据库序列化报错。"""
+        """将 numpy 等外部数值类型转为 Python 原生类型，避免数据库序列化报错。
+
+        psycopg2 对 np.float64 的默认适配会产生不加引号的 "np.float64(...)"，
+        混入 SQL 后被 Postgres 解析为 schema 名（InvalidSchemaName: schema "np"），
+        故可空指标字段也须显式转原生 float/bool。np.int64 会直接抛
+        "can't adapt type"，一并由 int() 兜底。
+        """
         self.price = float(self.price)
         self.stop_loss = float(self.stop_loss)
         self.leverage = int(self.leverage)
+        for _f in ("quality_score", "adx", "plus_di", "minus_di", "rsi",
+                   "volume_ratio", "atr", "entry_threshold_pct", "distance_pct"):
+            _v = getattr(self, _f)
+            if _v is not None:
+                setattr(self, _f, float(_v))
+        if self.is_counter_trend is not None:
+            self.is_counter_trend = bool(self.is_counter_trend)

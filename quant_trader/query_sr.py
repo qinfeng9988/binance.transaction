@@ -24,8 +24,9 @@ import aiohttp
 import yaml
 
 from quant_trader.core.config_loader import ConfigLoader
+from quant_trader.core.time_utils import DEFAULT_QUERY_TIMEFRAMES, validate_timeframes
 from quant_trader.exchange.binance_adapter import BinanceAdapter
-from quant_trader.technical.support_resistance import analyze_sr_levels
+from quant_trader.technical.support_resistance import analyze_sr_levels, compute_position_analysis
 
 
 API_PATH = "/api/v1/query"
@@ -45,6 +46,15 @@ def _load_manual_config() -> dict:
             return yaml.safe_load(f) or {}
     except Exception:
         return {}
+
+
+def _query_timeframes() -> list[str]:
+    """返回手动查询允许的周期清单（from manual_config.query_timeframes，未配置时回退默认）。"""
+    tfs = _load_manual_config().get("query_timeframes")
+    if not tfs:
+        return list(DEFAULT_QUERY_TIMEFRAMES)
+    validate_timeframes(tfs, where="manual_config.query_timeframes")
+    return list(tfs)
 
 
 def _normalize_symbol(symbol: str) -> str:
@@ -259,8 +269,21 @@ def format_output(data: dict, mode: str) -> str:
     return _format_pre_trade(data)
 
 
-async def _fetch_local_analysis(symbol: str, timeframe: str, exchange_cfg, manual_config: dict):
-    """当引擎无数据时，直接从 Binance 拉取 K 线并本地计算 S/R 分析。"""
+async def _fetch_local_analysis(
+    symbol: str,
+    timeframe: str,
+    exchange_cfg,
+    manual_config: dict,
+    mode: str = "pre_trade",
+    entry_price: float | None = None,
+    side: str | None = None,
+    qty: float | None = None,
+):
+    """当引擎无数据时，直接从 Binance 拉取 K 线并本地计算 S/R 分析。
+
+    mode="position" 时同时计算结构化止损/止盈建议（与引擎端共用
+    compute_position_analysis），保证持仓模式在兜底路径下输出一致。
+    """
     # 检查本地缓存
     cache_key = (symbol, timeframe)
     if cache_key in _local_cache:
@@ -318,6 +341,7 @@ async def _fetch_local_analysis(symbol: str, timeframe: str, exchange_cfg, manua
         data = {
             "symbol": symbol,
             "timeframe": timeframe,
+            "mode": mode,
             "current_price": current_price,
             "timestamp": analysis.get("timestamp", ""),
             "trend": analysis["trend"],
@@ -339,8 +363,20 @@ async def _fetch_local_analysis(symbol: str, timeframe: str, exchange_cfg, manua
             },
         }
 
-        # 写入本地缓存
-        _local_cache[cache_key] = (time.time(), data)
+        # 持仓模式：补齐结构化止损/止盈（与引擎端共用 compute_position_analysis）
+        if mode == "position" and entry_price and side:
+            try:
+                entry = float(entry_price)
+                qty_val = float(qty) if qty else 0.0
+                data["position_analysis"] = compute_position_analysis(
+                    analysis, current_price, entry, side, qty_val, manual_config,
+                )
+            except (ValueError, TypeError):
+                pass
+
+        # 仅 pre_trade 结果入缓存（position 模式因入场价不同每次都算）
+        if mode == "pre_trade":
+            _local_cache[cache_key] = (time.time(), data)
         return data
     finally:
         await adapter.close()
@@ -372,7 +408,7 @@ async def _fetch_query(host: str, port: int, params: dict):
 async def _main_async():
     parser = argparse.ArgumentParser(description="手动交易 S/R 查询工具")
     parser.add_argument("--symbol", required=True, help="交易对符号，如 SOL 或 SOL/USDT")
-    parser.add_argument("--timeframe", default="15m", choices=["15m", "30m", "1h", "4h", "1d"], help="K线周期")
+    parser.add_argument("--timeframe", default="15m", choices=_query_timeframes(), help="K线周期")
     parser.add_argument("--position-mode", action="store_true", help="持仓监控模式")
     parser.add_argument("--entry-price", type=float, help="入场价格（持仓模式必需）")
     parser.add_argument("--side", choices=["long", "short"], help="持仓方向（持仓模式必需）")
@@ -431,7 +467,13 @@ async def _main_async():
         if exc.status == 404:
             # 引擎无该币种/周期的 K 线数据，尝试直接从 Binance 拉取
             print(f"\n提示：引擎未配置 {symbol} {args.timeframe}，正在直接从 Binance 拉取...")
-            data = await _fetch_local_analysis(symbol, args.timeframe, exchange_cfg, manual_config)
+            data = await _fetch_local_analysis(
+                symbol, args.timeframe, exchange_cfg, manual_config,
+                mode=("position" if args.position_mode else "pre_trade"),
+                entry_price=args.entry_price,
+                side=args.side,
+                qty=args.qty,
+            )
             if data is None:
                 print(f"\n错误：{exc.message}")
                 if hasattr(exc, '_error_data') and 'hint' in exc._error_data:

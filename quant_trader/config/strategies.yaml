@@ -11,6 +11,8 @@ strategies:
     min_touches: 4.8
     stop_loss_pct: 2.2
     leverage: 5
+    # 开仓仓位占余额比例（原硬编码 0.1；上调以匹配风控预算，单仓风险仍 <1% 余额）
+    position_value_ratio: 0.13
     entry_threshold_pct: 0.35
     secondary_min_touches: 4
     secondary_entry_threshold_pct: 0.25
@@ -93,8 +95,7 @@ strategies:
     poc_far_threshold_pct: 0.007
     vah_val_near_bonus: 0.5
     vah_val_inner_bonus: 0.3
-- name: support_resistance_btc_1h
-  enabled: true
+  enabled: false
   symbols:
   - BTC/USDT
   timeframes:
@@ -193,8 +194,8 @@ strategies:
   enabled: true
   symbols:
   - ETH/USDT
+  # 单周期策略：仅保留 1h（15m 收益结构差，已按需求弃用）
   timeframes:
-  - 15m 
   - 1h
   params:
     lookback: 100
@@ -204,6 +205,8 @@ strategies:
     min_touches: 4.0
     stop_loss_pct: 1.5
     leverage: 5
+    # 开仓仓位占余额比例（原硬编码 0.1；1h 胜率 78%、回撤极低，上调风险敞口）
+    position_value_ratio: 0.18
     entry_threshold_pct: 0.7
     secondary_min_touches: 4
     secondary_entry_threshold_pct: 0.5
@@ -267,8 +270,7 @@ strategies:
     poc_far_threshold_pct: 0.007
     vah_val_near_bonus: 0.5
     vah_val_inner_bonus: 0.3
-- name: support_resistance_eth_5m
-  enabled: true
+  enabled: false  # 单周期策略：ETH 仅保留 1h
   symbols:
   - ETH/USDT
   timeframes:
@@ -335,7 +337,7 @@ strategies:
     structured_stop_min_r: 1.5
     structured_stop_buffer_pct: 0.3
     structured_stop_quality_buffer_pct: 0.2
-    # ---- 部分止盈（5m 启用，快速锁定利润）----
+    # ---- 部分止盈（5m 启用，快速锁定利润）---- 
     partial_tp_enabled: true
     partial_tp_levels:
     - r_threshold: 1.2
@@ -375,14 +377,16 @@ strategies:
   enabled: true
   symbols:
   - SOL/USDT
+  # 单周期策略：仅保留 5m
   timeframes:
   - 5m
-  - 1h
   params:
     lookback: 100
     min_touches: 4
     stop_loss_pct: 1.5
     leverage: 3
+    # 开仓仓位占余额比例（原硬编码 0.1；上调以覆盖与 10% 目标的差距）
+    position_value_ratio: 0.22
     ranging_leverage_multiplier: 0.5
     entry_threshold_pct: 1.5
     secondary_min_touches: 4
@@ -406,7 +410,7 @@ strategies:
     ema_slow_period: 21
     ema_gap_threshold_pct: 0.5
     adx_period: 14
-    adx_min: 19.0
+    adx_min: 20.0
     adx_min_high_quality: 17.0
     di_tolerance: 2.0
     quality_threshold_for_lower_adx: 5.5
@@ -420,7 +424,7 @@ strategies:
     rsi_countertrend_short_min: 55.0
     volume_burst_ratio: 1.5
     volume_burst_lookback: 20
-    secondary_min_quality: 6.0
+    secondary_min_quality: 6.5
     secondary_volume_ratio: 1.6
     use_atr_stop: true
     atr_period: 14
@@ -440,17 +444,112 @@ strategies:
     partial_tp_levels:
     - r_threshold: 2.0
       close_pct: 0.4
+    - r_threshold: 4.0
+      close_pct: 0.4
     require_rejection_candle: false
     require_pullback_retest: false
     # ---- 加仓控制 ----
-    max_additions_ranging: 0
-    max_additions_trending: 0
+    max_additions_ranging: 1
+    max_additions_trending: 1
     add_quality_tier2: 6.0
     # ---- 强趋势逆势过滤（仅SOL） ----
     strict_bias_mode: true
     # ---- 趋势期追仓加仓 ----
     trend_addition_allow_chase: true
     # ---- Funding Rate 过滤（SOL 波动大，阈值略松，降杠杆轻） ----
+    funding_filter_enabled: true
+    funding_long_penalty_threshold: 0.012
+    funding_long_hard_block_threshold: 0.018
+    funding_short_block_threshold: -0.022
+    funding_short_hard_block_threshold: -0.070
+    funding_long_quality_penalty: -1.0
+    funding_long_leverage_reduction_enabled: true
+    funding_long_leverage_reduction: 0.7
+    # ---- Volume Profile VAH/VAL 增强（Phase 1）----
+    use_vah_val: true
+    value_area_pct: 0.72
+    poc_near_threshold_pct: 0.005
+    poc_far_threshold_pct: 0.007
+    vah_val_near_bonus: 0.5
+    vah_val_inner_bonus: 0.3
+- name: support_resistance_bnb
+  enabled: true
+  symbols:
+  - BNB/USDT
+  # 单周期策略：5m 提频（1h=20笔/+5.3%、15m=21笔/-0.13%、5m=287笔/+4.61%，5m 唯一既提频又保持正收益）
+  timeframes:
+  - 5m
+  params:
+    lookback: 100
+    min_touches: 4
+    stop_loss_pct: 1.5
+    # BNB 未列入 risk.yaml major_symbols（杠杆上限 3），故此处显式 3x
+    leverage: 3
+    # 开仓仓位占余额比例（先与 SOL 5m 同档，跑出正边后再决定是否上调）
+    position_value_ratio: 0.22
+    ranging_leverage_multiplier: 0.5
+    entry_threshold_pct: 1.5
+    secondary_min_touches: 4
+    secondary_entry_threshold_pct: 0.5
+    adaptive_swing_window: true
+    swing_window_adx_threshold: 25.0
+    swing_window_strong: 3
+    swing_window_weak: 2
+    use_order_blocks: true
+    use_fvg: true
+    require_parent_ema_aligned: true
+    ema_fast_period: 9
+    ema_slow_period: 21
+    ema_gap_threshold_pct: 0.5
+    adx_period: 14
+    adx_min: 20.0
+    adx_min_high_quality: 17.0
+    di_tolerance: 2.0
+    quality_threshold_for_lower_adx: 5.5
+    price_vs_ema_filter: false
+    rsi_period: 14
+    rsi_long_min: 35.0
+    rsi_long_max: 75.0
+    rsi_short_min: 25.0
+    rsi_short_max: 58.0
+    rsi_countertrend_long_max: 45.0
+    rsi_countertrend_short_min: 55.0
+    volume_burst_ratio: 1.5
+    volume_burst_lookback: 20
+    secondary_min_quality: 6.5
+    secondary_volume_ratio: 1.6
+    use_atr_stop: true
+    atr_period: 14
+    # BNB 5m 最优于 6.0（8.0 时每笔止损放大、回撤升到 3.65%，收益反降）
+    atr_multiplier: 6.0
+    trailing_stop_enabled: false
+    trailing_breakeven_threshold_r: 0.8
+    trailing_breakeven_target_r: 1.8
+    trailing_start_r: 1.8
+    trailing_distance_r: 1.8
+    trailing_wide_start_r: 3.5
+    trailing_wide_distance_r: 2.5
+    structured_stop_enabled: false
+    structured_stop_min_r: 1.5
+    structured_stop_buffer_pct: 0.3
+    structured_stop_quality_buffer_pct: 0.2
+    partial_tp_enabled: true
+    partial_tp_levels:
+    - r_threshold: 2.0
+      close_pct: 0.4
+    - r_threshold: 4.0
+      close_pct: 0.4
+    require_rejection_candle: false
+    require_pullback_retest: false
+    # ---- 加仓控制 ----
+    max_additions_ranging: 1
+    max_additions_trending: 1
+    add_quality_tier2: 6.0
+    # ---- 强趋势逆势过滤 ----
+    strict_bias_mode: true
+    # ---- 趋势期追仓加仓 ----
+    trend_addition_allow_chase: true
+    # ---- Funding Rate 过滤（BNB 本轮资金费率≈0.015%，放宽硬阈值以免误杀做多）----
     funding_filter_enabled: true
     funding_long_penalty_threshold: 0.012
     funding_long_hard_block_threshold: 0.018

@@ -234,3 +234,29 @@ def test_driver_funding_rate_none_when_no_match():
     ))
 
     assert events[0].funding_rate is None
+
+
+def test_driver_event_exposes_funding_ts():
+    """事件应暴露命中的 funding 记录时间戳（用于回测主循环检测 funding 事件跨越）。"""
+    cur = [make_kline(100), make_kline(150), make_kline(200)]
+    ds = MagicMock()
+    ds.get_klines_range.return_value = cur
+    ds.count_klines.return_value = 1000
+
+    funding_records = [
+        {"timestamp_ms": 150_000, "rate_pct": 0.01},
+        {"timestamp_ms": 250_000, "rate_pct": 0.02},
+    ]
+
+    driver = BacktestKlineDriver(data_store=ds, adapter=None, window_size=2)
+
+    events = list(driver.iter_klines(
+        symbol="BTC/USDT", timeframe="5m",
+        start=datetime.fromtimestamp(100, tz=timezone.utc),
+        end=datetime.fromtimestamp(200, tz=timezone.utc),
+        funding_records=funding_records,
+    ))
+
+    # 事件 t=150 命中 150s 记录；事件 t=200 仍命中 150s（250s 在未来）
+    assert events[0].funding_ts == 150_000
+    assert events[1].funding_ts == 150_000

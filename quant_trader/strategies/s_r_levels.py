@@ -777,6 +777,19 @@ class SupportResistanceStrategy(BaseStrategy):
                 symbol, timeframe, atr_multiplier, effective_atr_multiplier,
             )
 
+        # ---- FR 软阈值预计算（候选位循环外，只算一次）----
+        # 修复：此前惩罚块在候选位循环内，每检查一个候选位就乘一次降杠杆系数，
+        # 多候选位被拦截时杠杆复合衰减（5x→3x→1x），且会泄漏到同 bar 另一方向。
+        fr_long_penalty_applied = False
+        fr_short_penalty_applied = False
+        fr_adjusted_leverage = leverage
+        if funding_filter_enabled and funding_rate is not None:
+            fr_long_penalty_applied = funding_rate > funding_long_penalty_threshold
+            fr_short_penalty_applied = funding_rate < funding_short_block_threshold
+            if (fr_long_penalty_applied or fr_short_penalty_applied) \
+                    and funding_long_leverage_reduction_enabled:
+                fr_adjusted_leverage = max(1, int(leverage * funding_long_leverage_reduction))
+
         # ========== 3. 识别高质量 S/R 位 ==========
         levels = identify_support_resistance(
             klines,
@@ -981,23 +994,15 @@ class SupportResistanceStrategy(BaseStrategy):
 
                 quality_score = support.get("quality_score", 0)
 
-                # --- 4x. Funding Rate 软阈值：扣分 + 降杠杆 ---
-                original_leverage_for_log = leverage
-                if funding_filter_enabled and funding_rate is not None:
-                    if funding_rate > funding_long_penalty_threshold:
-                        quality_score += funding_long_quality_penalty
-                        filter_stats["buy"]["fr_penalty"] += 1
-                        logger.debug(
-                            "FR软阈值 %s %s 做多: funding=%.4f%% > %.4f%%, quality %.1f → %.1f",
-                            symbol, timeframe, funding_rate, funding_long_penalty_threshold,
-                            quality_score - funding_long_quality_penalty, quality_score,
-                        )
-                        if funding_long_leverage_reduction_enabled:
-                            leverage = max(1, int(leverage * funding_long_leverage_reduction))
-                            logger.debug(
-                                "FR降杠杆 %s %s 做多: %dx → %dx",
-                                symbol, timeframe, original_leverage_for_log, leverage,
-                            )
+                # --- 4x. Funding Rate 软阈值：扣分（降杠杆已在循环外预计算） ---
+                if fr_long_penalty_applied:
+                    quality_score += funding_long_quality_penalty
+                    filter_stats["buy"]["fr_penalty"] += 1
+                    logger.debug(
+                        "FR软阈值 %s %s 做多: funding=%.4f%% > %.4f%%, quality %.1f → %.1f",
+                        symbol, timeframe, funding_rate, funding_long_penalty_threshold,
+                        quality_score - funding_long_quality_penalty, quality_score,
+                    )
 
                 # --- 4y. 质量分级 ADX 检查 ---
                 effective_adx_min = adx_min_high_quality if quality_score >= quality_threshold_for_lower_adx else adx_min
@@ -1177,7 +1182,7 @@ class SupportResistanceStrategy(BaseStrategy):
                     signal_type="buy",
                     price=current_price,
                     stop_loss=stop_loss,
-                    leverage=leverage,
+                    leverage=fr_adjusted_leverage,
                     quality_score=round(quality_score, 2),
                     adx=round(current_adx, 2),
                     plus_di=round(current_pdi, 2),
@@ -1213,17 +1218,17 @@ class SupportResistanceStrategy(BaseStrategy):
                         "add_count": _get_pos_attr(existing_pos, "add_count", 0) if existing_pos else 0,
                         "is_ranging": is_ranging,
                         "funding_rate": round(funding_rate, 4) if funding_rate is not None else None,
-                        "funding_penalty_applied": funding_filter_enabled and funding_rate is not None and funding_rate > funding_long_penalty_threshold,
-                        "pre_fr_leverage": original_leverage_for_log,
+                        "funding_penalty_applied": fr_long_penalty_applied,
+                        "pre_fr_leverage": leverage,
                     },
                 )
                 signals.append(signal)
                 filter_stats["buy"]["passed"] += 1
                 fr_info = ""
-                if funding_filter_enabled and funding_rate is not None and funding_rate > funding_long_penalty_threshold:
+                if fr_long_penalty_applied:
                     fr_info = f", FR={funding_rate:.4f}%→penalty={funding_long_quality_penalty}"
-                    if funding_long_leverage_reduction_enabled and leverage < original_leverage_for_log:
-                        fr_info += f", lev={original_leverage_for_log}x→{leverage}x"
+                    if fr_adjusted_leverage < leverage:
+                        fr_info += f", lev={leverage}x→{fr_adjusted_leverage}x"
                 logger.info(
                     "做多信号 %s %s: 现价=%.2f, 支撑=%.2f, 距离=%.3f%%, "
                     "趋势=%s, 上级=%s, 偏向=%s, %s, 止损=%.2f, "
@@ -1277,23 +1282,15 @@ class SupportResistanceStrategy(BaseStrategy):
 
                 quality_score = resistance.get("quality_score", 0)
 
-                # --- 4x. Funding Rate 软阈值：做空扣分（对称设计） ---
-                original_leverage_for_log = leverage
-                if funding_filter_enabled and funding_rate is not None:
-                    if funding_rate < funding_short_block_threshold:
-                        quality_score += funding_long_quality_penalty  # 使用相同惩罚值
-                        filter_stats["sell"]["fr_penalty"] += 1
-                        logger.debug(
-                            "FR软阈值 %s %s 做空: funding=%.4f%% < %.4f%%, quality %.1f → %.1f",
-                            symbol, timeframe, funding_rate, funding_short_block_threshold,
-                            quality_score - funding_long_quality_penalty, quality_score,
-                        )
-                        if funding_long_leverage_reduction_enabled:
-                            leverage = max(1, int(leverage * funding_long_leverage_reduction))
-                            logger.debug(
-                                "FR降杠杆 %s %s 做空: %dx → %dx",
-                                symbol, timeframe, original_leverage_for_log, leverage,
-                            )
+                # --- 4x. Funding Rate 软阈值：做空扣分（降杠杆已在循环外预计算） ---
+                if fr_short_penalty_applied:
+                    quality_score += funding_long_quality_penalty  # 使用相同惩罚值
+                    filter_stats["sell"]["fr_penalty"] += 1
+                    logger.debug(
+                        "FR软阈值 %s %s 做空: funding=%.4f%% < %.4f%%, quality %.1f → %.1f",
+                        symbol, timeframe, funding_rate, funding_short_block_threshold,
+                        quality_score - funding_long_quality_penalty, quality_score,
+                    )
 
                 # --- 4y. 质量分级 ADX 检查 ---
                 effective_adx_min = adx_min_high_quality if quality_score >= quality_threshold_for_lower_adx else adx_min
@@ -1472,7 +1469,7 @@ class SupportResistanceStrategy(BaseStrategy):
                     signal_type="sell",
                     price=current_price,
                     stop_loss=stop_loss,
-                    leverage=leverage,
+                    leverage=fr_adjusted_leverage,
                     quality_score=round(quality_score, 2),
                     adx=round(current_adx, 2),
                     plus_di=round(current_pdi, 2),
@@ -1509,17 +1506,17 @@ class SupportResistanceStrategy(BaseStrategy):
                         "add_count": _get_pos_attr(existing_pos, "add_count", 0) if existing_pos else 0,
                         "is_ranging": is_ranging,
                         "funding_rate": round(funding_rate, 4) if funding_rate is not None else None,
-                        "funding_penalty_applied": funding_filter_enabled and funding_rate is not None and funding_rate < funding_short_block_threshold,
-                        "pre_fr_leverage": original_leverage_for_log,
+                        "funding_penalty_applied": fr_short_penalty_applied,
+                        "pre_fr_leverage": leverage,
                     },
                 )
                 signals.append(signal)
                 filter_stats["sell"]["passed"] += 1
                 fr_info = ""
-                if funding_filter_enabled and funding_rate is not None and funding_rate < funding_short_block_threshold:
+                if fr_short_penalty_applied:
                     fr_info = f", FR={funding_rate:.4f}%→penalty={funding_long_quality_penalty}"
-                    if funding_long_leverage_reduction_enabled and leverage < original_leverage_for_log:
-                        fr_info += f", lev={original_leverage_for_log}x→{leverage}x"
+                    if fr_adjusted_leverage < leverage:
+                        fr_info += f", lev={leverage}x→{fr_adjusted_leverage}x"
                 logger.info(
                     "做空信号 %s %s: 现价=%.2f, 压力=%.2f, 距离=%.3f%%, "
                     "趋势=%s, 上级=%s, 偏向=%s, %s, 止损=%.2f, "

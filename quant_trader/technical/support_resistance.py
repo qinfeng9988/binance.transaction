@@ -904,3 +904,128 @@ def analyze_sr_levels(
         "levels": levels,
         "is_ranging": is_ranging,
     }
+
+
+def compute_position_analysis(
+    analysis: dict,
+    current_price: float,
+    entry: float,
+    side: str,
+    qty: float,
+    manual_config: dict,
+) -> dict:
+    """计算持仓监控的结构化止损/止盈建议（纯函数，无 I/O）。
+
+    与查询服务的引擎端（query_server._query_handler）和客户端兜底
+    （query_sr._fetch_local_analysis）共用同一套逻辑，保证持仓模式下两条
+    路径输出一致。
+
+    参数:
+        analysis: analyze_sr_levels 返回的分析结果（含 levels / atr）
+        current_price: 当前价格
+        entry: 入场价格（float）
+        side: 持仓方向 "long" / "short"
+        qty: 持仓数量
+        manual_config: 手动交易辅助配置（manual_config.yaml）
+
+    返回:
+        position_analysis dict，字段与引擎端一致。
+    """
+    atr_val = analysis.get("atr", 0.0) or 0.0
+    atr_multiplier = manual_config.get("atr_multiplier", 5.5)
+
+    is_long = side.lower() == "long"
+
+    # ATR 止损（手动缓冲版）
+    long_stop = current_price - atr_val * atr_multiplier if atr_val > 0 else None
+    short_stop = current_price + atr_val * atr_multiplier if atr_val > 0 else None
+
+    # 当前盈亏
+    if is_long:
+        unrealized_pnl = (current_price - entry) * qty
+        profit_pct = (current_price - entry) / entry * 100 if entry != 0 else 0.0
+    else:
+        unrealized_pnl = (entry - current_price) * qty
+        profit_pct = (entry - current_price) / entry * 100 if entry != 0 else 0.0
+
+    all_levels = analysis["levels"]["support"] + analysis["levels"]["resistance"]
+    buffer_pct = (manual_config.get("structured_stop") or {}).get("buffer_pct", 0.3)
+
+    # 结构化止损（基于最近 S/R 位）
+    structured_stop = None
+    if is_long:
+        # 做多：找低于当前价的最近支撑
+        supports = sorted(
+            [l for l in all_levels if l["price"] < current_price],
+            key=lambda x: x["price"], reverse=True,
+        )
+        if supports:
+            s_price = supports[0]["price"]
+            structured_stop = s_price * (1 - buffer_pct / 100)
+            if current_price > entry:
+                structured_stop = max(structured_stop, entry)   # 浮盈：保本
+            else:
+                structured_stop = min(structured_stop, current_price)  # 浮亏：止损低于当前价
+    else:
+        # 做空：找高于当前价的最近压力
+        resistances = sorted(
+            [l for l in all_levels if l["price"] > current_price],
+            key=lambda x: x["price"],
+        )
+        if resistances:
+            r_price = resistances[0]["price"]
+            structured_stop = r_price * (1 + buffer_pct / 100)
+            if current_price < entry:
+                structured_stop = min(structured_stop, entry)   # 浮盈：保本
+            else:
+                structured_stop = max(structured_stop, current_price)  # 浮亏：止损高于当前价
+
+    # 止盈目标（S/R 质量分降序，ATR 兜底）
+    tp1 = tp2 = None
+    tp1_source = tp2_source = None
+    tp1_quality = tp2_quality = None
+
+    if is_long:
+        tp_candidates = sorted(
+            [l for l in all_levels if l["price"] > current_price],
+            key=lambda x: x["quality_score"], reverse=True,
+        )
+        if len(tp_candidates) >= 1:
+            tp1, tp1_source, tp1_quality = tp_candidates[0]["price"], "sr", tp_candidates[0]["quality_score"]
+        if len(tp_candidates) >= 2:
+            tp2, tp2_source, tp2_quality = tp_candidates[1]["price"], "sr", tp_candidates[1]["quality_score"]
+        if tp1 is None and atr_val > 0:
+            tp1, tp1_source = entry + 2 * atr_val, "atr"
+        if tp2 is None and atr_val > 0:
+            tp2, tp2_source = entry + 3 * atr_val, "atr"
+    else:
+        tp_candidates = sorted(
+            [l for l in all_levels if l["price"] < current_price],
+            key=lambda x: x["quality_score"], reverse=True,
+        )
+        if len(tp_candidates) >= 1:
+            tp1, tp1_source, tp1_quality = tp_candidates[0]["price"], "sr", tp_candidates[0]["quality_score"]
+        if len(tp_candidates) >= 2:
+            tp2, tp2_source, tp2_quality = tp_candidates[1]["price"], "sr", tp_candidates[1]["quality_score"]
+        if tp1 is None and atr_val > 0:
+            tp1, tp1_source = entry - 2 * atr_val, "atr"
+        if tp2 is None and atr_val > 0:
+            tp2, tp2_source = entry - 3 * atr_val, "atr"
+
+    return {
+        "entry_price": entry,
+        "current_price": current_price,
+        "side": side,
+        "quantity": qty,
+        "unrealized_pnl": round(unrealized_pnl, 2),
+        "profit_pct": round(profit_pct, 2),
+        "suggested_stop": round(structured_stop, 2) if structured_stop else None,
+        "atr_stop_long": round(long_stop, 2) if long_stop else None,
+        "atr_stop_short": round(short_stop, 2) if short_stop else None,
+        "tp1": round(tp1, 2) if tp1 else None,
+        "tp1_source": tp1_source,
+        "tp1_quality": round(tp1_quality, 2) if tp1_quality else None,
+        "tp2": round(tp2, 2) if tp2 else None,
+        "tp2_source": tp2_source,
+        "tp2_quality": round(tp2_quality, 2) if tp2_quality else None,
+    }

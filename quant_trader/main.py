@@ -12,6 +12,7 @@ from .core.kline_manager import KlineDataManager
 from .core.logger import setup_logging
 from .core.query_server import QueryServer
 from .core.signal_router import handle_signal
+from .core.time_utils import PERIODS
 from .exchange.binance_adapter import BinanceAdapter
 from .exchange.paper_trading import PaperTradingEngine
 from .models import Signal
@@ -19,27 +20,48 @@ from .risk.manager import RiskManager
 
 logger = logging.getLogger(__name__)
 
-# 周期到秒的映射
-TIMEFRAME_SECONDS = {
-    "1m": 60,
-    "3m": 180,
-    "5m": 300,
-    "15m": 900,
-    "1h": 3600,
-    "4h": 14400,
-    "1d": 86400,
-}
+# 周期到秒的映射（从 time_utils.PERIODS 派生，单一来源）
+TIMEFRAME_SECONDS = {name: seconds for name, (seconds, _parent) in PERIODS.items()}
 
-# 当前周期 → 上级周期映射（多周期趋势确认）
-PARENT_TIMEFRAME = {
-    "1m": "15m",
-    "3m": "1h",
-    "5m": "1h",
-    "15m": "1h",
-    "1h": "4h",
-    "4h": "1d",
-    "1d": "1w",
-}
+# 当前周期 → 上级周期映射（多周期趋势确认；从 PERIODS 派生，终端周期无父级不在此列）
+PARENT_TIMEFRAME = {name: parent for name, (_seconds, parent) in PERIODS.items() if parent}
+
+
+def collect_subscriptions(strategies) -> set[tuple[str, str]]:
+    """收集需要订阅的 (symbol, timeframe) 集合，含 parent 周期。
+
+    parent 周期用于多周期趋势确认（detect_trend_with_parent）。若不订阅，
+    实盘/paper 下 parent_klines 恒为 None，require_parent_ema_aligned /
+    strict_bias_mode / use_parent_trend_override 等过滤会静默失效，
+    与回测（驱动器显式拉取 parent 数据）行为不一致。
+
+    parent 周期来自注册表（time_utils.PERIODS），父级均在 TIMEFRAME_SECONDS
+    内（含 30m/3d/1w），不会再发生 1d→1w 被静默丢弃的情况。
+    """
+    subs: set[tuple[str, str]] = set()
+    for strategy in strategies:
+        if not strategy.enabled:
+            continue
+        for symbol in strategy.symbols:
+            for tf in strategy.timeframes:
+                subs.add((symbol, tf))
+                parent_tf = PARENT_TIMEFRAME.get(tf)
+                if parent_tf and parent_tf in TIMEFRAME_SECONDS:
+                    subs.add((symbol, parent_tf))
+    return subs
+
+
+def position_value_ratio_for(strategy_name: str, strategies) -> float:
+    """按策略名解析开仓仓位占余额比例（策略参数 position_value_ratio）。
+
+    未配置或找不到策略时回退默认 0.1（余额的 10%），与历史行为一致。
+    回测（backtest_runner）与实盘 paper（Engine._handle_signal）共用
+    同一参数语义，保证两条路径仓位行为一致。
+    """
+    for s in strategies:
+        if s.name == strategy_name:
+            return float(s.params.get("position_value_ratio", 0.1))
+    return 0.1
 
 
 class Engine:
@@ -60,6 +82,7 @@ class Engine:
         self._signal_cooldown = 220                      # 同币种最短信号间隔（秒），与回测保持一致
         self._funding_rate_cache: dict[str, tuple[float, float]] = {}  # symbol → (rate_pct, timestamp)
         self._FUNDING_RATE_TTL = 60                      # funding rate 缓存有效期（秒）
+        self._loop: asyncio.AbstractEventLoop | None = None  # 主事件循环（热重载回调跨线程调度用）
 
     def initialize(self):
         """初始化：加载配置、连接数据库和交易所。"""
@@ -81,18 +104,19 @@ class Engine:
         )
         self.data_store.connect()
 
-        # 初始化模拟交易引擎
+        # 初始化风控模块（需在模拟引擎之前，引擎平仓时回调风控）
+        self.risk_manager = RiskManager(self.config.risk, self.data_store)
+
+        # 初始化模拟交易引擎（平仓时通知风控，驱动连续亏损冷静期/日亏损限制）
         self.paper_engine = PaperTradingEngine(
             initial_balance=100000.0,
             default_type=exchange_cfg.default_type,
+            risk_manager=self.risk_manager,
         )
         logger.info("模拟交易引擎已初始化: 初始资金=%.0f USDT", 100000.0)
 
         # 从数据库恢复持仓状态（程序重启后继续之前的模拟交易）
         self.paper_engine.restore_from_db(self.data_store)
-
-        # 初始化风控模块
-        self.risk_manager = RiskManager(self.config.risk, self.data_store)
 
         # 连接交易所（行情数据）
         self.exchange = BinanceAdapter(
@@ -130,16 +154,18 @@ class Engine:
         logger.info("配置已重新加载: %s", filename)
         self._strategy_cache = None  # 缓存失效，下次重建
 
-        # 仅 strategies.yaml 变更时才更新订阅
+        # 仅 strategies.yaml 变更时才更新订阅。
+        # 本回调在 watchdog 观察者线程执行，必须用 run_coroutine_threadsafe
+        # 把协程调度回主事件循环（asyncio.create_task 在非循环线程会抛
+        # RuntimeError 且被 config_loader 吞掉，导致订阅永不更新）
         if filename == "strategies.yaml" and self.kline_manager is not None:
-            new_set: set[tuple[str, str]] = set()
-            for strategy in self.config.strategies.strategies:
-                if not strategy.enabled:
-                    continue
-                for symbol in strategy.symbols:
-                    for tf in strategy.timeframes:
-                        new_set.add((symbol, tf))
-            asyncio.create_task(self.kline_manager.update_subscriptions(new_set))
+            new_set = collect_subscriptions(self.config.strategies.strategies)
+            if self._loop is not None and self._loop.is_running():
+                asyncio.run_coroutine_threadsafe(
+                    self.kline_manager.update_subscriptions(new_set), self._loop,
+                )
+            else:
+                logger.debug("事件循环未运行，跳过 K 线订阅更新")
 
     def _is_paused(self) -> bool:
         """检测 .pause 文件是否存在（紧急暂停机制）。"""
@@ -176,13 +202,14 @@ class Engine:
     async def run(self):
         """启动引擎，并行运行 K 线拉取和策略调度。"""
         self._running = True
+        self._loop = asyncio.get_running_loop()
         logger.info("引擎已启动")
 
         # 预热策略缓存
         self._load_strategies()
 
-        # 收集所有需要去重的 (symbol, timeframe) 组合
-        symbol_timeframes: set[tuple[str, str]] = set()
+        # 收集所有需要去重的 (symbol, timeframe) 组合（含 parent 周期）
+        symbol_timeframes = collect_subscriptions(self.config.strategies.strategies)
         strategy_configs: list[tuple[str, str, str]] = []  # (strategy_name, symbol, timeframe)
 
         for strategy in self.config.strategies.strategies:
@@ -190,7 +217,6 @@ class Engine:
                 continue
             for symbol in strategy.symbols:
                 for tf in strategy.timeframes:
-                    symbol_timeframes.add((symbol, tf))
                     strategy_configs.append((strategy.name, symbol, tf))
 
         # 先启动状态 HTTP 服务
@@ -336,6 +362,9 @@ class Engine:
                 data_store=self.data_store,
                 risk_manager=self.risk_manager,
                 mode="paper",
+                position_value_ratio=position_value_ratio_for(
+                    signal.strategy_name, self.config.strategies.strategies,
+                ),
             )
             return
 
@@ -473,6 +502,7 @@ class Engine:
             "support_resistance_eth": SupportResistanceStrategy,
             "support_resistance_eth_5m": SupportResistanceStrategy,
             "support_resistance_sol": SupportResistanceStrategy,
+            "support_resistance_bnb": SupportResistanceStrategy,
             "support_resistance_paxg": SupportResistanceStrategy,
             "bollinger_bands_paxg": BollingerBandsStrategy,
         }

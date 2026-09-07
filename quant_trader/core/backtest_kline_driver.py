@@ -32,11 +32,13 @@ class KlineEvent:
         window: 当前 K 线及其之前 window_size-1 根组成的滑动窗口（新→旧）
         parent_window: parent 周期窗口（新→旧），无 parent 时为 None
         funding_rate: 当前 K 线时间戳匹配到的 funding rate（百分比），无匹配时为 None
+        funding_ts: 命中的 funding 记录时间戳（ms），用于主循环检测 funding 事件跨越；无匹配时为 None
     """
     kline: dict
     window: list[dict]
     parent_window: list[dict] | None
     funding_rate: float | None
+    funding_ts: int | None = None
 
 
 # ============================================================
@@ -76,10 +78,9 @@ def align_parent_klines(
     return parent_windows
 
 
-def match_funding_rate(timestamp_ms: int, records: list[dict]) -> float | None:
-    """按时间戳匹配最近的 funding rate。
+def match_funding_record(timestamp_ms: int, records: list[dict]) -> dict | None:
+    """按时间戳匹配最近的 funding 记录（不超过 timestamp_ms 的最新一条）。
 
-    使用 bisect 查找不超过 timestamp_ms 的最新记录。
     无匹配记录时返回 None。
     """
     if not records:
@@ -88,7 +89,17 @@ def match_funding_rate(timestamp_ms: int, records: list[dict]) -> float | None:
     idx = bisect.bisect_right(times, timestamp_ms) - 1
     if idx < 0:
         return None
-    return records[idx]["rate_pct"]
+    return records[idx]
+
+
+def match_funding_rate(timestamp_ms: int, records: list[dict]) -> float | None:
+    """按时间戳匹配最近的 funding rate。
+
+    使用 bisect 查找不超过 timestamp_ms 的最新记录。
+    无匹配记录时返回 None。
+    """
+    record = match_funding_record(timestamp_ms, records)
+    return record["rate_pct"] if record else None
 
 
 def load_funding_rates(symbol: str, cache_dir: Path | str) -> list[dict]:
@@ -209,15 +220,20 @@ class BacktestKlineDriver:
             parent_window = parent_windows_aligned[i] if i < len(parent_windows_aligned) else None
             # 匹配 funding rate
             funding_rate = None
+            funding_ts = None
             if funding_records:
                 ts_ms = int(kline["timestamp"].timestamp() * 1000)
-                funding_rate = match_funding_rate(ts_ms, funding_records)
+                record = match_funding_record(ts_ms, funding_records)
+                if record:
+                    funding_rate = record["rate_pct"]
+                    funding_ts = record["timestamp_ms"]
 
             yield KlineEvent(
                 kline=kline,
                 window=window,
                 parent_window=parent_window,
                 funding_rate=funding_rate,
+                funding_ts=funding_ts,
             )
 
     def _compute_parent_warmup(self, parent_timeframe: str, parent_lookback: int | None) -> timedelta:
