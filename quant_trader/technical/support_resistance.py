@@ -785,7 +785,11 @@ def analyze_sr_levels(
         else:
             parent_trend = "uptrend" if parent_fast > parent_slow else "downtrend"
 
-        parent_aligned = parent_trend != "ranging"
+        parent_aligned = (
+            parent_trend != "ranging"
+            and trend != "ranging"
+            and parent_trend == trend
+        )
         parent_trend_info = {
             "trend": parent_trend,
             "ema_fast": round(float(parent_fast), 2),

@@ -6,8 +6,8 @@
 | 策略类型 | 趋势跟踪 + 技术分析 |
 | 核心思想 | 在高质量支撑/阻力位附近，经多维度过滤（ADX/RSI/成交量）确认后，顺势交易为主、逆势交易为辅 |
 | 适用市场 | 高流动性、有明确趋势的加密货币市场 |
-| 交易标的 | BTC/USDT (5m), ETH/USDT (1h), SOL/USDT (5m), PAXG/USDT |
-| 当前版本 | v1.4.2 |
+| 交易标的 | BTC/USDT (5m), ETH/USDT (1h), SOL/USDT (5m), PAXG/USDT (1h) |
+| 当前版本 | v1.7.0 |
 
 ## 1. 核心算法
 
@@ -418,14 +418,15 @@ FR软阈值 SOL/USDT 5m 做空: funding=-0.0250% < -0.02%, quality 6.0 → 5.0
 ```yaml
 # quant_trader/config/strategies.yaml
 # 策略名: support_resistance_btc
-# v1.4.2：启用拒绝蜡烛（2.0x）；ADX 18/15；分级加仓 1/2
+# v1.7.0：position_value_ratio 0.17, ADX 17/14, ATR 7.5, 趋势追仓
 
 params:
   # S/R 检测参数
   lookback: 100
-  min_touches: 5.3
+  min_touches: 5.0
   stop_loss_pct: 2.2
   leverage: 5
+  position_value_ratio: 0.17
   entry_threshold_pct: 0.35
   secondary_min_touches: 4
   secondary_entry_threshold_pct: 0.25
@@ -448,8 +449,8 @@ params:
   ema_slow_period: 21
   ema_gap_threshold_pct: 0.5
   adx_period: 14
-  adx_min: 18.0
-  adx_min_high_quality: 15.0
+  adx_min: 17.0
+  adx_min_high_quality: 14.0
   di_tolerance: 2.0
   use_parent_trend_override: true
   ranging_adx_relax_factor: 0.75
@@ -458,23 +459,23 @@ params:
 
   # 动量/波动参数
   rsi_period: 14
-  rsi_long_min: 35.0
+  rsi_long_min: 32.0
   rsi_long_max: 75.0
   rsi_short_min: 25.0
-  rsi_short_max: 58.0
+  rsi_short_max: 60.0
   rsi_countertrend_long_max: 45.0
   rsi_countertrend_short_min: 55.0
   volume_burst_ratio: 1.5
   volume_burst_lookback: 20
 
   # 逆势交易额外过滤
-  secondary_min_quality: 6.5
+  secondary_min_quality: 7.0
   secondary_volume_ratio: 1.6
 
   # ATR 动态止损
   use_atr_stop: true
   atr_period: 14
-  atr_multiplier: 5.0
+  atr_multiplier: 7.5
 
   # 移动止损（已禁用）
   trailing_stop_enabled: false
@@ -512,6 +513,7 @@ params:
 
   # 强趋势逆势过滤
   strict_bias_mode: true
+  trend_addition_allow_chase: true
 ```
 
 ### 3.2 ETH/USDT 专用策略
@@ -678,19 +680,26 @@ params:
 
 ```yaml
 # 策略名: support_resistance_paxg
+# v1.7.0：从 Bollinger EMA 交叉策略迁移至 S/R 策略；ADX 20/17（过滤 ADX<20 全亏区间）
 
 params:
   # S/R 检测参数
   lookback: 100
-  min_touches: 4
+  min_touches: 4.5
   stop_loss_pct: 1.5
   leverage: 3
+  position_value_ratio: 0.32
   entry_threshold_pct: 0.5
   secondary_min_touches: 4
   secondary_entry_threshold_pct: 0.3
+  trend_bonus_aligned: 1.3
+  trend_bonus_counter: -0.5
 
   # 自适应摆动窗口
   adaptive_swing_window: false
+  swing_window_adx_threshold: 25.0
+  swing_window_strong: 3
+  swing_window_weak: 2
 
   # S/R 检测增强
   use_order_blocks: false
@@ -700,10 +709,15 @@ params:
   require_parent_ema_aligned: true
   ema_fast_period: 9
   ema_slow_period: 21
-  ema_gap_threshold_pct: 0.5
+  ema_gap_threshold_pct: 0.3
   adx_period: 14
   adx_min: 20.0
   adx_min_high_quality: 17.0
+  di_tolerance: 2.0
+  use_parent_trend_override: true
+  ranging_adx_relax_factor: 0.75
+  quality_threshold_for_lower_adx: 5.5
+  price_vs_ema_filter: false
 
   # 动量/波动参数
   rsi_period: 14
@@ -711,18 +725,39 @@ params:
   rsi_long_max: 75.0
   rsi_short_min: 25.0
   rsi_short_max: 58.0
-  volume_burst_ratio: 1.5
+  rsi_countertrend_long_max: 45.0
+  rsi_countertrend_short_min: 55.0
+  volume_burst_ratio: 1.3
   volume_burst_lookback: 20
+
+  # 逆势交易额外过滤
+  secondary_min_quality: 6.0
+  secondary_volume_ratio: 1.5
 
   # ATR 动态止损
   use_atr_stop: true
   atr_period: 14
   atr_multiplier: 3.5
 
+  # 退出管理（全部关闭）
+  trailing_stop_enabled: false
+  structured_stop_enabled: false
+  partial_tp_enabled: false
+
   # 拒绝蜡烛 / 回踩确认
   require_rejection_candle: false
   require_pullback_retest: false
-  pullback_lookback: 10
+
+  # 加仓控制
+  max_additions_ranging: 1
+  max_additions_trending: 2
+  add_quality_tier2: 6.0
+
+  # 强趋势逆势过滤
+  strict_bias_mode: true
+  trend_addition_allow_chase: true
+  funding_filter_enabled: false
+  use_vah_val: false
 ```
 
 ## 4. 多策略架构
@@ -828,7 +863,7 @@ python scripts/analyze_attribution.py --latest
 |---------|--------|---------|---------|------|--------------|
 | 30天（近期） | -3.74% | 5.16% | 16 | 18.8% | 0.25 |
 | 60天（近期） | **+33.64%** | 6.74% | 18 | 27.8% | **6.40** |
-| YTD（1/1-7/8, v1.5.0） | **+38.22%** | 7.69% | 72 | 33.3% | **2.72** |
+| YTD（1/1-8/20, v1.7.0） | **+12.28%** | 2.82% | 49 | 34.7% | — |
 
 **策略特征（v1.5.0）**：低胜率（~33%）但较高盈亏比。YTD 收益 +38.22%，FR 过滤拦截顶格拥挤时段。30 天近期表现较差（-3.74%），主要受 6 月中旬连续止损影响，但 60 天区间受 5 月单笔大盈利拉动收益达 +33.64%。盈利单能跑很远，亏损单被严格截断。
 
@@ -865,13 +900,12 @@ python scripts/analyze_attribution.py --latest
 
 ### 6.5 PAXG/USDT (1h)
 
-| 回测区间 | 收益率 | 最大回撤 | 交易次数 | 胜率 | Profit Factor |
-|---------|--------|---------|---------|------|--------------|
-| 30天（近期） | -0.45% | 0.96% | 6 | 16.7% | 0.52 |
-| 60天（近期） | +0.49% | 0.96% | 16 | 31.2% | 1.32 |
-| YTD（1/1-7/8） | +0.66% | 3.60% | 51 | 25.5% | 1.13 |
+| 回测区间 | 收益率 | 最大回撤 | 交易次数 | 胜率 | 策略 |
+|---------|--------|---------|---------|------|------|
+| YTD（1/1-8/20, Bollinger） | -0.19% | 1.89% | 76 | 21.1% | EMA 交叉 |
+| YTD（1/1-8/20, S/R v1.7.0） | **+9.99%** | 6.35% | 31 | 25.8% | S/R 1h |
 
-**策略特征**：低波动品种，交易频率低（51 笔/YTD），胜率低（~25.5%），MDD 极小（3.6%）。整体收益微薄，低波动特性导致 S/R 位信号较少且盈利空间有限。可能需要更紧的止损和更低的 ADX 阈值来提升表现。
+**策略特征（v1.7.0）**：从 Bollinger EMA 交叉策略迁移至 S/R 策略。YTD 收益率 +9.99%，交易 31 笔，胜率 25.8%，最大回撤 6.35%。相比旧 EMA 交叉策略（-0.19%, 76 笔），S/R 策略大幅减少交易频率并显著提升收益。ADX 20 有效过滤此前 ADX<20 的全亏区间。
 
 ## 7. 已知问题与 TODO
 
@@ -888,7 +922,7 @@ python scripts/analyze_attribution.py --latest
 - [x] **加仓机制优化（保守版本）**：v1.4.1 已完成，分级加仓+风险上限+连续亏损降级
 - [x] **ETH 1h 策略落地与配置清理**：v1.4.2 已关闭 ETH 5m、加仓、拒绝蜡烛；清理无用参数
 - [x] **SOL/BTC 拒绝蜡烛配置定型**：BTC 启用（2.0x），SOL 关闭
-- [ ] **PAXG 策略激活**：低波动品种适配
+- [x] **PAXG 策略激活**：低波动品种适配
 - [ ] **4h 周期回测**：长周期尚未充分测试
 - [ ] `identify_support_resistance` 被调用两次（做多/做空各一次），可优化为单次调用
 
@@ -896,6 +930,7 @@ python scripts/analyze_attribution.py --latest
 
 | 版本 | 日期 | 变更内容 | 变更人 |
 |------|------|---------|--------|
+| v1.7.0 | 2026-09-13 | BTC 5m 参数优化(+12.28%) + PAXG S/R 策略替代 EMA(+9.99%)：position_value_ratio 0.13→0.17, min_touches 4.8→5.0, adx_min 18→17, atr_multiplier 7.0→7.5, rsi 区间微调; PAXG 从 Bollinger EMA→S/R, adx_min 20 过滤全亏区间 | jiangfeng.qin |
 | v1.6.1 | 2026-08-24 | 退出机制回测评估：①修复信号调度bug（退出信号被 break/cooldown 跳过，改为退出信号优先执行无 cooldown）②BTC 1h/ETH 1h YTD 回测对比（baseline vs structured_stop+partial_tp）③回测结论：structured_stop 在 1h 周期将止损移至 S/R 位后频繁触发，收益大幅下降，MDD 改善有限；BTC 1h partial_tp 截断大赢单。④配置调整：BTC 1h 关闭 structured_stop+partial_tp，ETH 关闭 structured_stop | jiangfeng.qin |
 | v1.6.0 | 2026-08-24 | 退出管理与开仓过滤解耦：①提取 `_manage_position_exits()` 方法（结构化止损/跟踪止损/部分止盈）②ATR 与已有持仓查找提前到 ADX 过滤之前 ③ADX/自身震荡/上级震荡三处提前返回由 `return []` 改为返回退出信号，确保已有仓位止盈止损每根 bar 无条件执行 ④BTC 1h / ETH 启用 `structured_stop`+`partial_tp`（锁定已有浮盈，定位从"提升每笔表现"转为"防止盈利单回吐"） | jiangfeng.qin |
 | v1.4.2 | 2026-06-09 | 策略配置定型与文档更新：①ETH 关闭 5m 交易周期、关闭加仓与拒绝蜡烛 ②BTC 启用拒绝蜡烛（2.0x） ③SOL 关闭拒绝蜡烛 ④清理 ETH/SOL 无用配置参数 ⑤移除 `check_rejection_candle` 废弃的 `reference_size` 参数 ⑥优化 `identify_support_resistance` 拒绝蜡烛计算（require_rejection=false 时跳过） | jiangfeng.qin |

@@ -343,6 +343,8 @@ class PaperTradingEngine:
                         (pos.id,),
                     )
                     mock_pos.entry_seq_counter = cur.fetchone()[0]
+                    # add_count = entry_seq_counter - 1（seq=1 是首笔开仓，2+=加仓）
+                    mock_pos.add_count = max(0, mock_pos.entry_seq_counter - 1)
 
             # 扣除对应的占用资金（恢复被锁定的资金状态）
             if self.default_type == "swap":

@@ -54,13 +54,14 @@ logger = logging.getLogger(__name__)
 
 STRATEGY_REGISTRY = {
     "support_resistance": SupportResistanceStrategy,
-    "support_resistance_btc_5m": SupportResistanceStrategy,
-    "support_resistance_btc_1h": SupportResistanceStrategy,
+    "support_resistance_btc": SupportResistanceStrategy,
     "support_resistance_eth": SupportResistanceStrategy,
-    "support_resistance_eth_5m": SupportResistanceStrategy,
     "support_resistance_sol": SupportResistanceStrategy,
     "support_resistance_bnb": SupportResistanceStrategy,
     "support_resistance_paxg": SupportResistanceStrategy,
+    "support_resistance_uni": SupportResistanceStrategy,
+    "support_resistance_xau": SupportResistanceStrategy,
+    "bollinger_bands_xau": BollingerBandsStrategy,
     "bollinger_bands_paxg": BollingerBandsStrategy,
 }
 
@@ -506,7 +507,7 @@ async def run(args):
     print_attribution_report(backtest_ds)
 
     print(f"\n归因分析命令：")
-    print(f"  python scripts/analyze_attribution.py --run-id {run_id}")
+    print(f"  python3 scripts/analyze_attribution.py --run-id {run_id}")
 
     backtest_ds.close()
     return 0

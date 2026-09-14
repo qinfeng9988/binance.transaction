@@ -13,6 +13,8 @@ quant_trader/
 ├── core/
 │   ├── config_loader.py           # 配置加载 + 文件热重载
 │   ├── data_store.py              # PostgreSQL 数据层（K 线/信号/订单/持仓/归因明细）
+│   ├── backtest_data_store.py     # 回测专用数据层（run_id 隔离，继承 DataStore）
+│   ├── backtest_kline_driver.py   # 回测 K 线驱动（历史数据逐根推进 + parent 对齐 + funding rate 匹配）
 │   ├── kline_manager.py           # K 线数据管理（增量拉取 + 事件订阅）
 │   ├── logger.py                  # 日志系统（终端 + 文件 + signals.log + trades.log）
 │   ├── query_server.py            # HTTP 查询服务（状态 + S/R 查询 + 归因）
@@ -25,8 +27,8 @@ quant_trader/
 │   └── __init__.py                # 数据模型定义（Signal 等）
 ├── strategies/
 │   ├── base.py                    # 策略基类
-│   ├── s_r_levels.py              # 支撑/压力位策略（BTC/ETH/SOL）
-│   └── bollinger_bands.py         # 双均线趋势策略（PAXG）
+│   ├── s_r_levels.py              # 支撑/压力位策略（BTC/ETH/SOL/PAXG）
+│   └── bollinger_bands.py         # 双均线趋势策略（XAU，PAXG 已废弃）
 ├── technical/
 │   ├── indicators.py              # 技术指标（RSI/EMA/MACD/布林带）
 │   └── support_resistance.py      # 支撑/压力识别 + S/R 纯分析函数
@@ -132,56 +134,16 @@ database:
 
 ### 2. strategies.yaml — 策略配置
 
-```yaml
-mode: "paper"              # 运行模式：paper | live_confirm | live_auto
+### 活跃策略一览 (v1.7.0)
 
-strategies:
-  - name: support_resistance_btc
-    enabled: true
-    symbols: ["BTC/USDT"]
-    timeframes: ["5m", "1h", "4h"]
-    params:
-      lookback: 100
-      min_touches: 5.3
-      stop_loss_pct: 2.2
-      leverage: 5
-      entry_threshold_pct: 0.35
-      ...
-
-  - name: support_resistance_eth
-    enabled: true
-    symbols: ["ETH/USDT"]
-    timeframes: ["1h", "4h"]
-    params:
-      lookback: 100
-      min_touches: 4.0
-      stop_loss_pct: 1.5
-      leverage: 5
-      entry_threshold_pct: 0.7
-      ...
-
-  - name: support_resistance_eth_5m
-    enabled: true
-    symbols: ["ETH/USDT"]
-    timeframes: ["5m", "1h", "4h"]
-    params:
-      lookback: 288
-      sr_lookback: 288
-      entry_threshold_pct: 0.5
-      volume_burst_ratio: 1.3
-      ...
-
-  - name: bollinger_bands_paxg
-    enabled: true
-    symbols: ["PAXG/USDT"]
-    timeframes: ["1h"]
-    params:
-      ema_fast_period: 20
-      ema_slow_period: 50
-      atr_multiplier: 1.5
-      leverage: 3
-      ...
-```
+| 策略 | 币种 | 周期 | 收益(YTD) | 胜率 |
+|------|------|------|-----------|------|
+| support_resistance_btc | BTC/USDT | 5m | +12.28% | 34.7% |
+| support_resistance_eth | ETH/USDT | 1h | — | — |
+| support_resistance_sol | SOL/USDT | 5m | — | — |
+| support_resistance_bnb | BNB/USDT | 5m | — | — |
+| support_resistance_paxg | PAXG/USDT | 1h | +9.99% | 25.8% |
+| support_resistance_uni | UNI/USDT | 5m | +12.41% | 46.0% |
 
 **生效方式**：修改后 **热重载**（约 1 秒内自动生效，无需重启）
 
@@ -543,10 +505,13 @@ strategy_registry = {
     "support_resistance": SupportResistanceStrategy,
     "support_resistance_btc": SupportResistanceStrategy,
     "support_resistance_eth": SupportResistanceStrategy,
-    "support_resistance_eth_5m": SupportResistanceStrategy,
     "support_resistance_sol": SupportResistanceStrategy,
-    "support_resistance_paxg": SupportResistanceStrategy,
-    "bollinger_bands_paxg": BollingerBandsStrategy,  # PAXG 双均线策略
+    "support_resistance_bnb": SupportResistanceStrategy,
+    "support_resistance_paxg": SupportResistanceStrategy,   # PAXG S/R +9.99%
+    "support_resistance_uni": SupportResistanceStrategy,    # UNI S/R +12.41%
+    "support_resistance_xau": SupportResistanceStrategy,    # XAU S/R (已禁用)
+    "bollinger_bands_xau": BollingerBandsStrategy,          # XAU EMA (已禁用)
+    "bollinger_bands_paxg": BollingerBandsStrategy,         # PAXG EMA (已禁用)
 }
 ```
 
@@ -678,8 +643,8 @@ binance:
 | `exchange/paper_trading.py` | 模拟交易引擎（余额/下单/持仓/归因/数据库恢复，实盘与回测共用） |
 | `models/__init__.py` | 数据模型定义（Signal 等） |
 | `strategies/base.py` | 策略基类 |
-| `strategies/s_r_levels.py` | 支撑/压力位策略（BTC/ETH/SOL） |
-| `strategies/bollinger_bands.py` | 双均线趋势策略（PAXG） |
+| `strategies/s_r_levels.py` | 支撑/压力位策略（BTC/ETH/SOL/PAXG/UNI） |
+| `strategies/bollinger_bands.py` | 双均线趋势策略（已全部禁用） |
 | `technical/indicators.py` | 技术指标（RSI/EMA/MACD/布林带） |
 | `technical/support_resistance.py` | 支撑/压力识别 + 成交量分布 |
 | `risk/manager.py` | 风控管理器（止损/杠杆/仓位/日亏损/连续亏损冷静期） |
@@ -703,10 +668,12 @@ binance:
 
 | 文档 | 说明 |
 |------|------|
-| [docs/strategies/current/02_support_resistance.md](docs/strategies/current/02_support_resistance.md) | BTC/ETH/SOL 支撑/阻力位策略（v1.5.0） |
-| [docs/strategies/current/03_eth_5m.md](docs/strategies/current/03_eth_5m.md) | ETH/USDT 5m 短周期策略 |
-| [docs/strategies/current/04_paxg_ema.md](docs/strategies/current/04_paxg_ema.md) | PAXG/USDT 双均线趋势策略 |
-| [docs/strategies/current/05_manual_query.md](docs/strategies/current/05_manual_query.md) | 手动交易辅助 S/R 查询功能 |
+| [docs/strategies/current/02_support_resistance.md](docs/strategies/current/02_support_resistance.md) | BTC/ETH/SOL/PAXG 支撑/阻力位策略（v1.7.0） |
+| [docs/strategies/current/03_eth_5m.md](docs/strategies/current/03_eth_5m.md) | ETH/USDT 1h 策略 |
+| [docs/strategies/current/04_paxg_ema.md](docs/strategies/current/04_paxg_ema.md) | ⚠️ PAXG/USDT EMA 策略（已废弃） |
+| [docs/strategies/current/05_manual_query.md](docs/strategies/current/05_manual_query.md) | 手动交易辅助 S/R 查询 |
+| [docs/strategies/current/06_paxg_sr.md](docs/strategies/current/06_paxg_sr.md) | PAXG/USDT S/R 策略 +9.99% |
+| [docs/strategies/current/07_uni_sr.md](docs/strategies/current/07_uni_sr.md) | UNI/USDT 5m S/R 策略 +12.41% |
 
 ## 常见问题
 
@@ -740,6 +707,15 @@ python scripts/fetch_history.py --symbol PAXG/USDT --timeframe 1h --days 180
 ```bash
 # 指定日期范围回测
 python scripts/backtest_runner.py --symbol ETH/USDT --timeframe 1h --start 2026-01-01 --end 2026-06-30
+
+# BTC 5m 回测（v1.7.0 优化后 YTD +12.28%）
+python scripts/backtest_runner.py --symbol BTC/USDT --timeframe 5m --start 2026-01-01 --end 2026-08-20
+
+# PAXG S/R 策略回测（v1.7.0 新增，YTD +9.99%）
+python scripts/backtest_runner.py --symbol PAXG/USDT --timeframe 1h --strategy support_resistance_paxg --start 2026-01-01 --end 2026-08-20
+
+# UNI 5m S/R 策略回测（v1.7.0 新增，YTD +12.41%）
+python scripts/backtest_runner.py --symbol UNI/USDT --timeframe 5m --strategy support_resistance_uni --start 2026-01-01 --end 2026-08-20
 
 # 指定策略回测（用于多策略匹配同一币种时）
 python scripts/backtest_runner.py --symbol PAXG/USDT --timeframe 1h --start 2026-01-01 --end 2026-06-30 --strategy bollinger_bands_paxg

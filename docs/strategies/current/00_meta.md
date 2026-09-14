@@ -4,15 +4,16 @@
 
 | 属性 | 值 |
 |------|-----|
-| 版本号 | **v1.6.1** |
-| 发布日期 | 2026-08-24 |
-| 状态 | 已验证（信号调度修复 + 退出机制回测评估） |
+| 版本号 | **v1.7.0** |
+| 发布日期 | 2026-09-13 |
+| 状态 | 已验证（BTC 5m 参数优化 +12.28%，PAXG S/R 替代 EMA 策略 +9.99%） |
 | 代码分支 | develop |
 
 ## 版本历史
 
 | 版本 | 日期 | 变更内容 | 变更人 |
 |------|------|---------|--------|
+| v1.7.0 | 2026-09-13 | BTC 5m 参数优化+12.28% & PAXG S/R 策略替代 EMA：①BTC 5m 回测 2026/1-8 从 +9.75%→+12.28%（position_value_ratio 0.13→0.17, min_touches 4.8→5.0, adx_min 18→17, atr_multiplier 7.0→7.5 等 9 项改动）②PAXG Bollinger EMA 策略三种周期全负（5m -5.86%, 1h -0.19%），替换为 S/R 策略，1h 回测 +9.99%（position_value_ratio 0.32, adx_min 20, atr_multiplier 3.5）③Bollinger 策略启用 adx_min 20 过滤 ADX<20 全亏区间 ④修正：跟踪止损/部分止盈在 BTC 5m 验证中确认拖累收益（+9.75%→+0.69%） | jiangfeng.qin |
 | v1.6.1 | 2026-08-24 | 退出机制回测评估：①修复信号调度bug（退出信号被break/cooldown跳过，改为退出信号优先执行无cooldown）②BTC 1h/ETH 1h YTD回测对比（baseline vs structured_stop+partial_tp）③回测结论：structured_stop在1h周期止损移至S/R位后频繁触发，严重拖累收益，关闭；BTC 1h partial_tp截断大赢单，关闭 | jiangfeng.qin |
 | v1.6.0 | 2026-08-24 | 退出管理与开仓过滤解耦：①提取 `_manage_position_exits()` 方法 ②ATR/已有持仓查找提前到 ADX 过滤之前 ③ADX/自身震荡/上级震荡三处提前返回由 `return []` 改为返回退出信号，已有仓位止盈止损每根 bar 无条件执行 ④BTC 1h / ETH 启用 `structured_stop`+`partial_tp`，锁定已有浮盈、防止盈利单回吐 | jiangfeng.qin |
 | v1.5.2 | 2026-07-08 | 持仓监控模式改进：①修复结构化止损浮亏场景bug（止损被保本约束拉到当前价另一侧）②新增止盈建议（按S/R位质量分排序取TP1/TP2，ATR备选）③持仓输出格式重设计（趋势/止盈/S/R位详情/中文标签） | jiangfeng.qin |
@@ -31,10 +32,12 @@
 
 | 编号 | 策略名称 | 文件 | 状态 |
 |------|---------|------|------|
-| 02 | 支撑/阻力位多周期趋势确认策略 v1.5.0 | [02_support_resistance.md](02_support_resistance.md) | 验证中 |
-| 03 | ETH/USDT 5m 短周期策略 | [03_eth_5m.md](03_eth_5m.md) | 验证中 |
-| 04 | PAXG/USDT 双均线趋势跟踪策略 | [04_paxg_ema.md](04_paxg_ema.md) | 验证中 |
-| 05 | 手动交易辅助 S/R 查询功能 v1.5.2 | [05_manual_query.md](05_manual_query.md) | 已生效 |
+| 02 | 支撑/阻力位多周期趋势确认策略 v1.7.0 | [02_support_resistance.md](02_support_resistance.md) | 生效中 |
+| 03 | ETH/USDT 1h 策略 | [03_eth_5m.md](03_eth_5m.md) | 生效中 |
+| 04 | PAXG/USDT 双均线趋势跟踪策略（已废弃） | [04_paxg_ema.md](04_paxg_ema.md) | 已废弃 |
+| 05 | 手动交易辅助 S/R 查询功能 | [05_manual_query.md](05_manual_query.md) | 已生效 |
+| 06 | PAXG/USDT S/R 策略 v1.0.0 | [06_paxg_sr.md](06_paxg_sr.md) | 生效中 |
+| 07 | UNI/USDT 5m S/R 策略 v1.0.0 | 待创建 | 生效中 |
 
 ## 风控版本
 
@@ -42,7 +45,46 @@
 |------|------|------|
 | [01_risk_policy.md](01_risk_policy.md) | v1.0.0 | 生效中（本迭代未变更） |
 
-## v1.6.1 变更摘要（当前）
+## v1.7.0 变更摘要（当前）
+
+### A. BTC 5m 参数优化（+9.75% → +12.28%）
+
+Backtest period: 2026-01-01 ~ 2026-08-20
+
+| Param | Old | New | Rationale |
+|-------|-----|-----|-----------|
+| position_value_ratio | 0.13 | 0.17 | Core lever: +31% position = linear return scaling |
+| min_touches | 4.8 | 5.0 | Slightly tighter entry quality |
+| atr_multiplier | 7.0 | 7.5 | Slightly wider stop (DD 2.14%→2.82%, acceptable) |
+| adx_min | 18.0 | 17.0 | Attribution shows ADX<20 has best WR (43.5%) |
+| adx_min_high_quality | 15.0 | 14.0 | Consistent with above |
+| rsi_long_min | 35.0 | 32.0 | Slightly wider RSI range |
+| rsi_short_max | 58.0 | 60.0 | Slightly wider RSI range |
+| secondary_min_quality | 6.5 | 7.0 | Tighter secondary quality |
+| trend_addition_allow_chase | (none) | true | Allow chase in trends |
+
+Verified failures: trailing_stop (+9.75%→+0.69%), partial_tp, price_vs_ema_filter, atr_multiplier=8.5 (DD 5.91%).
+
+### B. PAXG: Bollinger EMA → S/R 策略替代
+
+- Bollinger EMA crossover on PAXG all timeframes negative: 5m -5.86%, 1h -0.19%
+- Replaced with S/R strategy, 1h optimized to +9.99%
+- Key insight: ADX<20 is a death zone for PAXG (5 trades, all losing), must use adx_min >= 20
+- High position_value_ratio (0.32) needed due to low volatility
+
+### C. UNI 5m S/R 策略新增
+
+| 回测区间 | 收益率 | 最大回撤 | 交易次数 | 胜率 |
+|---------|--------|---------|---------|------|
+| YTD（1/1-8/20） | **+12.41%** | 9.89% | 272 | 46.0% |
+
+基于 PAXG 经验，UNI 直接从 5m S/R 起步。关键参数：min_touches 5.0, adx_min 22, atr_multiplier 5.5, position_value_ratio 0.20。
+
+### D. XAU 评估与禁用
+
+XAU 测试了 Bollinger EMA 和 S/R 两种策略。Bollinger 优化后 +3.81%，S/R 优化后 +4.65%，均远低于 PAXG S/R 的 +9.99%。结论：保留 PAXG，禁用 XAU 全部策略。
+
+## v1.6.1 变更摘要
 
 ### A. 信号调度修复
 
@@ -196,13 +238,11 @@
 
 ### BTC/USDT (5m)
 
-| 回测区间 | 收益率 | 最大回撤 | 交易次数 | 胜率 | Profit Factor |
-|---------|--------|---------|---------|------|--------------|
-| 30天（近期） | -3.74% | 5.16% | 16 | 18.8% | 0.25 |
-| 60天（近期） | **+33.64%** | 6.74% | 18 | 27.8% | **6.40** |
-| YTD（1/1-7/8, v1.5.0） | **+38.22%** | 7.69% | 72 | 33.3% | **2.72** |
+| 回测区间 | 收益率 | 最大回撤 | 交易次数 | 胜率 |
+|---------|--------|---------|---------|------|
+| YTD（1/1-8/20, v1.7.0） | **+12.28%** | 2.82% | 49 | 34.7% |
 
-**策略特征（v1.5.0）**：低胜率（~33%）但较高盈亏比。YTD 收益 +38.22%，FR 过滤拦截顶格拥挤时段。30 天近期受连续止损影响为 -3.74%，但 60 天区间 +33.64% 体现大赢单覆盖小亏损的特征。
+**策略特征（v1.7.0）**：低胜率（~35%）但较高盈亏比。v1.7.0 通过 9 项参数优化将 YTD 收益从 +9.75% 提升至 +12.28%，同时 MDD 从 2.14% 小幅升至 2.82%（可接受）。跟踪止损/部分止盈验证为拖累因素，已关闭。
 
 ### BTC/USDT (1h)
 
@@ -234,6 +274,23 @@
 | YTD（1/1-7/8, v1.5.0） | **+7.34%** | 3.60% | 630 | 58.3% | 1.25 |
 
 **策略特征（v1.5.0）**：交易频率高（630 笔/YTD），胜率中等（~58%），MDD 控制在 3.6% 以内。FR 过滤是 SOL 的核心增强点：做空软惩罚大幅减少逆势交易。逐月盈利分布均匀，表现稳健。
+
+### PAXG/USDT
+
+| 回测区间 | 收益率 | 最大回撤 | 交易次数 | 胜率 | 策略 |
+|---------|--------|---------|---------|------|------|
+| YTD（1/1-8/20, Bollinger） | -0.19% | 1.89% | 76 | 21.1% | EMA 交叉 |
+| YTD（1/1-8/20, S/R v1.7.0） | **+9.99%** | 6.35% | 31 | 25.8% | S/R 1h |
+
+**策略特征（v1.7.0）**：Bollinger EMA 交叉策略在 PAXG 低波动品种上全周期亏损（5m -5.86%, 1h -0.19%），v1.7.0 替换为 S/R 策略，1h 周期回测 +9.99%。关键参数：position_value_ratio=0.32, adx_min=20, atr_multiplier=3.5。ADX<20 是 PAXG 的死区（5 笔全亏），必须 adx_min >= 20。
+
+### UNI/USDT (5m)
+
+| 回测区间 | 收益率 | 最大回撤 | 交易次数 | 胜率 | 策略 |
+|---------|--------|---------|---------|------|------|
+| YTD（1/1-8/20, v1.7.0） | **+12.41%** | 9.89% | 272 | 46.0% | S/R 5m |
+
+**策略特征（v1.7.0）**：基于 PAXG 经验，UNI 直接从 5m S/R 起步。关键参数：min_touches 5.0, adx_min 22, atr_multiplier 5.5, position_value_ratio 0.20。交易频率高（272 笔/YTD），胜率中等（46.0%），MDD 偏高（9.89%）需持续监控。
 
 ### v1.6.1 YTD 退出机制回测验证（2026-01-01 ~ 2026-08-24）
 
@@ -270,6 +327,10 @@
 | P0 | Funding Rate 过滤（硬阈值阻断 + 软阈值扣分/降杠杆） | v1.5.0 | 2026-06-09 | **已完成** |
 | P0 | 退出管理与开仓过滤解耦（已有仓位止盈止损每根 bar 无条件执行） | v1.6.0 | 2026-08-24 | **已完成** |
 | P1 | 解耦后退出机制回测评估（structured_stop/partial_tp 重测，定位为锁定浮盈） | v1.6.1 | 2026-08-24 | **已完成** |
+| P1 | PAXG 策略激活（Bollinger EMA → S/R 策略替代，1h 回测 +9.99%） | v1.7.0 | 2026-09-13 | **已完成** |
+| P1 | BTC 5m 参数优化（9 项改动，+9.75%→+12.28%） | v1.7.0 | 2026-09-13 | **已完成** |
+| P1 | UNI 策略新增（5m S/R，YTD +12.41%） | v1.7.0 | 2026-09-13 | **已完成** |
+| P1 | XAU 策略评估与禁用（Bollinger +3.81%, S/R +4.65%，均低于 PAXG） | v1.7.0 | 2026-09-13 | **已完成** |
 | P1 | SOL 5m 长周期回测验证（覆盖趋势期，验证第2次加仓效果） | v1.4.2 | 2026-06-15 | 已完成 |
 | P1 | Funding Rate 过滤回测验证（对比开启/关闭的关键指标） | v1.5.0 | 2026-06-12 | **已完成** |
 | P1 | PAXG 低波动品种适配 | v1.5.0 | 2026-06-30 | **已完成** |

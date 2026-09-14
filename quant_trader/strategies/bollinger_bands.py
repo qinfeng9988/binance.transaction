@@ -27,6 +27,14 @@ class BollingerBandsStrategy(BaseStrategy):
                positions: list, parent_klines: list[dict] | None = None,
                grandparent_klines: list[dict] | None = None,
                funding_rate: float | None = None) -> list[Signal]:
+        # 惰性初始化累计过滤统计（必须在 len(klines)<50 提前返回之前，
+        # 否则预热期 get_filter_summary 返回全零导致 upsert 覆盖有效行）
+        if not hasattr(self, "_filter_summary"):
+            self._filter_summary = {
+                "buy": {"checked": 0, "rsi": 0, "passed": 0},
+                "sell": {"checked": 0, "rsi": 0, "passed": 0},
+            }
+
         if len(klines) < 50:
             return []
 
@@ -93,34 +101,57 @@ class BollingerBandsStrategy(BaseStrategy):
         # ---- 开仓逻辑：均线交叉 ----
         if not existing_pos:
             # 金叉做多
-            if prev_fast <= prev_slow and current_fast > current_slow and current_rsi < rsi_overbought:
-                stop_loss = current_price - current_atr * atr_multiplier
-                signals.append(Signal(
-                    strategy_name=self.name, symbol=symbol, timeframe=timeframe,
-                    signal_type="buy", price=current_price, stop_loss=stop_loss, leverage=leverage,
-                    rsi=round(current_rsi, 2), atr=round(current_atr, 8),
-                    metadata={"fast": current_fast, "slow": current_slow, "rsi": current_rsi, "atr": current_atr},
-                ))
-                logger.info("EMA金叉做多 %s %s: 价格=%.2f, EMA%d=%.2f, EMA%d=%.2f, RSI=%.1f",
-                           symbol, timeframe, current_price, fast_period, current_fast, slow_period, current_slow, current_rsi)
+            if prev_fast <= prev_slow and current_fast > current_slow:
+                self._filter_summary["buy"]["checked"] += 1
+                if current_rsi < rsi_overbought:
+                    stop_loss = current_price - current_atr * atr_multiplier
+                    signals.append(Signal(
+                        strategy_name=self.name, symbol=symbol, timeframe=timeframe,
+                        signal_type="buy", price=current_price, stop_loss=stop_loss, leverage=leverage,
+                        rsi=round(current_rsi, 2), atr=round(current_atr, 8),
+                        metadata={"fast": current_fast, "slow": current_slow, "rsi": current_rsi, "atr": current_atr},
+                    ))
+                    self._filter_summary["buy"]["passed"] += 1
+                    logger.info("EMA金叉做多 %s %s: 价格=%.2f, EMA%d=%.2f, EMA%d=%.2f, RSI=%.1f",
+                               symbol, timeframe, current_price, fast_period, current_fast, slow_period, current_slow, current_rsi)
+                else:
+                    self._filter_summary["buy"]["rsi"] += 1
+                    logger.debug("RSI过滤做多 %s %s: RSI=%.1f >= %.0f",
+                                symbol, timeframe, current_rsi, rsi_overbought)
 
             # 死叉做空
-            elif prev_fast >= prev_slow and current_fast < current_slow and current_rsi > rsi_oversold:
-                stop_loss = current_price + current_atr * atr_multiplier
-                signals.append(Signal(
-                    strategy_name=self.name, symbol=symbol, timeframe=timeframe,
-                    signal_type="sell", price=current_price, stop_loss=stop_loss, leverage=leverage,
-                    rsi=round(current_rsi, 2), atr=round(current_atr, 8),
-                    metadata={"fast": current_fast, "slow": current_slow, "rsi": current_rsi, "atr": current_atr},
-                ))
-                logger.info("EMA死叉做空 %s %s: 价格=%.2f, EMA%d=%.2f, EMA%d=%.2f, RSI=%.1f",
-                           symbol, timeframe, current_price, fast_period, current_fast, slow_period, current_slow, current_rsi)
+            elif prev_fast >= prev_slow and current_fast < current_slow:
+                self._filter_summary["sell"]["checked"] += 1
+                if current_rsi > rsi_oversold:
+                    stop_loss = current_price + current_atr * atr_multiplier
+                    signals.append(Signal(
+                        strategy_name=self.name, symbol=symbol, timeframe=timeframe,
+                        signal_type="sell", price=current_price, stop_loss=stop_loss, leverage=leverage,
+                        rsi=round(current_rsi, 2), atr=round(current_atr, 8),
+                        metadata={"fast": current_fast, "slow": current_slow, "rsi": current_rsi, "atr": current_atr},
+                    ))
+                    self._filter_summary["sell"]["passed"] += 1
+                    logger.info("EMA死叉做空 %s %s: 价格=%.2f, EMA%d=%.2f, EMA%d=%.2f, RSI=%.1f",
+                               symbol, timeframe, current_price, fast_period, current_fast, slow_period, current_slow, current_rsi)
+                else:
+                    self._filter_summary["sell"]["rsi"] += 1
+                    logger.debug("RSI过滤做空 %s %s: RSI=%.1f <= %.0f",
+                                symbol, timeframe, current_rsi, rsi_oversold)
 
         return signals
 
     def get_filter_summary(self) -> dict:
-        """返回过滤统计（兼容接口）。"""
+        """返回过滤统计（兼容接口，仅追踪均线交叉与 RSI 过滤）。"""
+        accumulated = getattr(self, "_filter_summary", {
+            "buy": {"checked": 0, "rsi": 0, "passed": 0},
+            "sell": {"checked": 0, "rsi": 0, "passed": 0},
+        })
+        # 补齐完整字段以兼容 upsert_filter_stats；Bollinger 策略不使用其余过滤层
+        _zero = {"distance": 0, "adx": 0, "di": 0, "quality": 0, "ema": 0,
+                 "volume": 0, "rejection": 0, "pullback": 0,
+                 "fr_hard_block": 0, "fr_penalty": 0, "add": 0,
+                 "add_limit": 0, "add_quality": 0}
         return {
-            "buy": {"checked": 0, "distance": 0, "adx": 0, "di": 0, "quality": 0, "ema": 0, "rsi": 0, "volume": 0, "rejection": 0, "pullback": 0, "fr_hard_block": 0, "fr_penalty": 0, "add": 0, "add_limit": 0, "add_quality": 0, "passed": 0},
-            "sell": {"checked": 0, "distance": 0, "adx": 0, "di": 0, "quality": 0, "ema": 0, "rsi": 0, "volume": 0, "rejection": 0, "pullback": 0, "fr_hard_block": 0, "fr_penalty": 0, "add": 0, "add_limit": 0, "add_quality": 0, "passed": 0},
+            "buy": {**_zero, **accumulated["buy"]},
+            "sell": {**_zero, **accumulated["sell"]},
         }

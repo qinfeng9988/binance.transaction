@@ -130,17 +130,18 @@ class RiskManager:
                            signal.symbol, leveraged_loss_pct, max_loss_pct)
             return {"approved": False, "reason": "降杠杆后仍超限"}
 
-        # 5. 日累计亏损检查
-        if self._daily_loss >= cfg.position_limits.get("max_daily_loss_pct", 30):
-            logger.warning("[风控] 日累计亏损 %.2f%% 已达上限，拒绝所有新交易", self._daily_loss)
+        # 5. 日累计亏损检查（仅对新开仓拦截，反向平仓/加仓不受限）
+        if is_new_open and self._daily_loss >= cfg.position_limits.get("max_daily_loss_pct", 30):
+            logger.warning("[风控] 日累计亏损 %.2f%% 已达上限，拒绝新开仓", self._daily_loss)
             return {"approved": False, "reason": "日亏损已达上限"}
 
-        # 6. 最大持仓数
-        open_count = self._data_store.get_position_count()
-        max_positions = cfg.position_limits.get("max_concurrent_positions", 5)
-        if open_count >= max_positions:
-            logger.warning("[风控] 当前持仓 %d 已达上限 %d，拒绝新开仓", open_count, max_positions)
-            return {"approved": False, "reason": "持仓数已达上限"}
+        # 6. 最大持仓数（仅对新开仓检查；反向平仓减少持仓、加仓不增持仓数）
+        if is_new_open:
+            open_count = self._data_store.get_position_count()
+            max_positions = cfg.position_limits.get("max_concurrent_positions", 5)
+            if open_count >= max_positions:
+                logger.warning("[风控] 当前持仓 %d 已达上限 %d，拒绝新开仓", open_count, max_positions)
+                return {"approved": False, "reason": "持仓数已达上限"}
 
         # 7. 单币种仓位占比
         symbol_positions = [p for p in open_positions if p.symbol == signal.symbol]

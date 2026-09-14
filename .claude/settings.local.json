@@ -128,7 +128,8 @@
       "Bash(openspec-cn change *)",
       "Bash(openspec-cn schemas *)",
       "Bash(openspec-cn templates *)",
-      "Bash(openspec-cn validate *)"
+      "Bash(openspec-cn validate *)",
+      "Bash(grep -n \"单周期策略：ETH 仅保留 1h\\\\|^- name: support_resistance_eth$\\\\|^  enabled: false\" quant_trader/config/strategies.yaml)"
     ]
   }
 }

@@ -283,15 +283,18 @@ class ConfigLoader:
         strategies = raw.get("strategies", [])
         if not isinstance(strategies, list):
             raise ValueError("strategies 必须是一个列表")
+
+        # mode 校验独立于策略列表，空列表时也必须被校验
+        mode = raw.get("mode", "paper")
+        if mode not in ("paper", "live_confirm", "live_auto"):
+            raise ValueError(f"无效的交易模式 '{mode}'，必须是 paper/live_confirm/live_auto")
+
         for i, s in enumerate(strategies):
             if "name" not in s:
                 raise ValueError(f"策略 {i} 缺少必填字段 'name'")
             for tf in s.get("timeframes", []):
                 if not is_valid_timeframe(tf):
                     raise ValueError(f"策略 '{s['name']}' 含非法周期 '{tf}'（不在周期注册表中）")
-            mode = raw.get("mode", "paper")
-            if mode not in ("paper", "live_confirm", "live_auto"):
-                raise ValueError(f"无效的交易模式 '{mode}'，必须是 paper/live_confirm/live_auto")
 
     def _validate_risk(self, raw: dict):
         """校验 risk.yaml 数值在安全范围内。"""

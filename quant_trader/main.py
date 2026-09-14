@@ -500,11 +500,12 @@ class Engine:
             "support_resistance": SupportResistanceStrategy,
             "support_resistance_btc": SupportResistanceStrategy,
             "support_resistance_eth": SupportResistanceStrategy,
-            "support_resistance_eth_5m": SupportResistanceStrategy,
             "support_resistance_sol": SupportResistanceStrategy,
             "support_resistance_bnb": SupportResistanceStrategy,
             "support_resistance_paxg": SupportResistanceStrategy,
+            "support_resistance_xau": SupportResistanceStrategy,
             "bollinger_bands_paxg": BollingerBandsStrategy,
+            "bollinger_bands_xau": BollingerBandsStrategy,
         }
 
         result = {}

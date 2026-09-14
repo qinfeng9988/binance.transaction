@@ -53,7 +53,7 @@ def test_signal_record_converts_numpy_indicator_fields():
 
 def test_signal_quality_score_and_float_fields():
     s = Signal(
-        strategy_name="support_resistance_btc_5m",
+        strategy_name="support_resistance_btc",
         symbol="BTC/USDT",
         timeframe="5m",
         signal_type="buy",

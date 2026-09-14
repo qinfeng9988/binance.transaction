@@ -83,12 +83,10 @@ def detect_trend_with_parent(
 ) -> dict:
     """多周期趋势确认：结合当前和上级周期趋势判断交易偏向。
 
-    新增：上级周期 EMA 同向锚定 — 若上级 EMA21/50 不同向，则视为震荡。
-
     参数:
         klines: 当前周期 K 线（新→旧）
         parent_klines: 上级周期 K 线（新→旧），可为 None
-        require_parent_aligned: 是否要求上级 EMA 同向
+        require_parent_aligned: True 时，上级必须有明确方向，否则 bias=neutral
         threshold_pct: EMA 间距阈值（%），低于此值视为震荡
         trend_lookback: 当前周期趋势判断使用的 K 线数，None 表示使用全部
         parent_lookback: 上级周期趋势判断使用的 K 线数，None 表示使用全部
@@ -99,111 +97,116 @@ def detect_trend_with_parent(
         bias: 交易偏向
             - "long_only": 两周期一致上涨，只做多
             - "short_only": 两周期一致下跌，只做空
-            - "long_primary": 上级上涨，做多为主做空为副
-            - "short_primary": 上级下跌，做空为主做多为副
-            - "neutral": 震荡或无上级数据，双向均可
-        parent_aligned: 上级周期 EMA 是否同向（用于过滤）
+            - "long_primary": 上级上涨（或无上级时当前上涨），做多为主
+            - "short_primary": 上级下跌（或无上级时当前下跌），做空为主
+            - "neutral": 震荡或无法确认
+        parent_has_direction: 上级是否有明确趋势（非 ranging）；无上级时为 None
+        parent_aligned: 父子是否同向（都有方向且方向相同）；无上级时为 None
+        is_counter_trend: 当前相对上级是否逆势（都有方向且方向相反）
     """
     if trend_lookback is not None:
         klines = klines[:trend_lookback]
-    current = detect_trend(klines, threshold_pct=threshold_pct, fast_period=fast_period, slow_period=slow_period)
+    current = detect_trend(
+        klines,
+        threshold_pct=threshold_pct,
+        fast_period=fast_period,
+        slow_period=slow_period,
+    )
 
-    if parent_klines is None or len(parent_klines) < 50:
+    min_parent_len = max(slow_period + 5, 50)
+    if parent_klines is None or len(parent_klines) < min_parent_len:
         # 无上级数据，回退到单周期逻辑
         if current["trend"] == "uptrend":
-            return {
-                "trend": current["trend"],
-                "parent_trend": None,
-                "bias": "long_primary",
-                "parent_aligned": None,
-            }
+            bias = "long_primary"
         elif current["trend"] == "downtrend":
-            return {
-                "trend": current["trend"],
-                "parent_trend": None,
-                "bias": "short_primary",
-                "parent_aligned": None,
-            }
+            bias = "short_primary"
+        else:
+            bias = "neutral"
         return {
             "trend": current["trend"],
             "parent_trend": None,
-            "bias": "neutral",
+            "bias": bias,
+            "parent_has_direction": None,
             "parent_aligned": None,
+            "is_counter_trend": False,
         }
 
     if parent_lookback is not None:
         parent_klines = parent_klines[:parent_lookback]
-    parent = detect_trend(parent_klines, threshold_pct=threshold_pct, fast_period=fast_period, slow_period=slow_period)
-    parent_aligned = parent["trend"] != "ranging"
+    parent = detect_trend(
+        parent_klines,
+        threshold_pct=threshold_pct,
+        fast_period=fast_period,
+        slow_period=slow_period,
+    )
 
-    # 上级周期 EMA 锚定：若要求上级对齐但上级不同向，强制 neutral
-    if require_parent_aligned and not parent_aligned:
+    parent_has_direction = parent["trend"] != "ranging"
+    current_has_direction = current["trend"] != "ranging"
+
+    # parent_aligned = 父子真正同向（都有方向且方向一致）
+    parent_aligned = (
+        parent_has_direction
+        and current_has_direction
+        and parent["trend"] == current["trend"]
+    )
+    # is_counter_trend = 都有方向且方向相反（ranging 不算逆势）
+    is_counter_trend = (
+        parent_has_direction
+        and current_has_direction
+        and parent["trend"] != current["trend"]
+    )
+
+    # 仅当「要求上级有方向」且「上级震荡」时强制 neutral
+    # 父子反向不应在此被直接打成 neutral，应走 primary 逻辑
+    if require_parent_aligned and not parent_has_direction:
         return {
             "trend": current["trend"],
             "parent_trend": parent["trend"],
             "bias": "neutral",
+            "parent_has_direction": False,
             "parent_aligned": False,
+            "is_counter_trend": False,
         }
 
-    # 两周期一致
-    if current["trend"] == parent["trend"]:
-        if current["trend"] == "uptrend":
-            return {
-                "trend": current["trend"],
-                "parent_trend": parent["trend"],
-                "bias": "long_only",
-                "parent_aligned": True,
-            }
-        elif current["trend"] == "downtrend":
-            return {
-                "trend": current["trend"],
-                "parent_trend": parent["trend"],
-                "bias": "short_only",
-                "parent_aligned": True,
-            }
+    # 两周期同向
+    if parent_aligned:
+        bias = "long_only" if current["trend"] == "uptrend" else "short_only"
         return {
             "trend": current["trend"],
             "parent_trend": parent["trend"],
-            "bias": "neutral",
+            "bias": bias,
+            "parent_has_direction": True,
             "parent_aligned": True,
+            "is_counter_trend": False,
         }
 
-    # 不一致：上级周期决定主方向
-    if parent["trend"] == "uptrend":
+    # 上级有方向，但与当前不一致（或当前 ranging）→ 上级定主方向
+    if parent_has_direction:
+        bias = "long_primary" if parent["trend"] == "uptrend" else "short_primary"
         return {
             "trend": current["trend"],
             "parent_trend": parent["trend"],
-            "bias": "long_primary",
-            "parent_aligned": True,
-        }
-    elif parent["trend"] == "downtrend":
-        return {
-            "trend": current["trend"],
-            "parent_trend": parent["trend"],
-            "bias": "short_primary",
-            "parent_aligned": True,
+            "bias": bias,
+            "parent_has_direction": True,
+            "parent_aligned": False,
+            "is_counter_trend": is_counter_trend,
         }
 
-    # 上级震荡，以当前趋势为主方向
+    # 上级震荡，且未要求强制对齐 → 以当前为主
     if current["trend"] == "uptrend":
-        return {
-            "trend": current["trend"],
-            "parent_trend": parent["trend"],
-            "bias": "long_primary",
-            "parent_aligned": False,
-        }
+        bias = "long_primary"
     elif current["trend"] == "downtrend":
-        return {
-            "trend": current["trend"],
-            "parent_trend": parent["trend"],
-            "bias": "short_primary",
-            "parent_aligned": False,
-        }
+        bias = "short_primary"
+    else:
+        bias = "neutral"
+
     return {
         "trend": current["trend"],
         "parent_trend": parent["trend"],
-        "bias": "neutral",
+        "bias": bias,
+        "parent_has_direction": False,
         "parent_aligned": False,
+        "is_counter_trend": False,
     }
 
 
@@ -234,8 +237,13 @@ def check_adx_and_di(
     current_pdi = float(pdi_vals[-1]) if len(pdi_vals) > 0 else 0.0
     current_mdi = float(mdi_vals[-1]) if len(mdi_vals) > 0 else 0.0
 
-    if current_adx != current_adx:  # NaN check
+    def _invalid(x: float) -> bool:
+        return x != x  # NaN
+
+    if _invalid(current_adx):
         return False, 0.0, 0.0, 0.0, "adx_nan"
+    if _invalid(current_pdi) or _invalid(current_mdi):
+        return False, current_adx, 0.0, 0.0, "di_nan"
 
     if current_adx < min_adx:
         return False, current_adx, current_pdi, current_mdi, f"adx_low({current_adx:.1f}<{min_adx})"
@@ -511,28 +519,37 @@ def compute_dynamic_stop_loss(
         fallback_pct: ATR 不可用时回退到固定百分比
 
     返回:
-        止损价格
+        止损价格（保证 > 0 且在做多时 < entry、做空时 > entry）
     """
+    # 防御：fallback_pct 异常时回退到安全默认值
+    if fallback_pct <= 0 or fallback_pct >= 100:
+        fallback_pct = 1.5
+
+    def _clamp(stop: float) -> float:
+        """确保止损为正且位于正确侧。"""
+        if stop <= 0:
+            return entry_price * 0.95 if is_long else entry_price * 1.05
+        if is_long and stop >= entry_price:
+            return entry_price * 0.95
+        if not is_long and stop <= entry_price:
+            return entry_price * 1.05
+        return stop
+
     if len(klines) < atr_period + 1:
-        # ATR 数据不足，回退到固定百分比
-        if is_long:
-            return entry_price * (1 - fallback_pct / 100)
-        return entry_price * (1 + fallback_pct / 100)
+        stop = entry_price * (1 - fallback_pct / 100) if is_long else entry_price * (1 + fallback_pct / 100)
+        return _clamp(stop)
 
     atr_vals = atr(_chronological(klines), period=atr_period)
     current_atr = atr_vals[-1] if len(atr_vals) > 0 else 0.0
 
     if current_atr is None or (isinstance(current_atr, float) and current_atr != current_atr) or current_atr <= 0:
-        # ATR 无效，回退到固定百分比
-        if is_long:
-            return entry_price * (1 - fallback_pct / 100)
-        return entry_price * (1 + fallback_pct / 100)
+        stop = entry_price * (1 - fallback_pct / 100) if is_long else entry_price * (1 + fallback_pct / 100)
+        return _clamp(stop)
 
     atr_distance = current_atr * atr_multiplier
 
-    if is_long:
-        return entry_price - atr_distance
-    return entry_price + atr_distance
+    stop = entry_price - atr_distance if is_long else entry_price + atr_distance
+    return _clamp(stop)
 
 
 def _get_pos_attr(pos, key, default=None):
@@ -552,15 +569,16 @@ class SupportResistanceStrategy(BaseStrategy):
                grandparent_klines: list[dict] | None = None,
                confirm_klines: list[dict] | None = None,
                funding_rate: float | None = None) -> list[Signal]:
-        if len(klines) < 50:
-            return []
-
-        # 惰性初始化累计过滤统计（用于回测结束后的汇总分析）
+        # 惰性初始化累计过滤统计（必须在 len(klines)<50 提前返回之前，
+        # 否则预热期 get_filter_summary 返回全零导致 upsert 覆盖有效行）
         if not hasattr(self, "_filter_summary"):
             self._filter_summary = {
                 "buy": {"checked": 0, "distance": 0, "adx": 0, "di": 0, "quality": 0, "ema": 0, "rsi": 0, "volume": 0, "rejection": 0, "pullback": 0, "fr_hard_block": 0, "fr_penalty": 0, "add": 0, "add_limit": 0, "add_quality": 0, "passed": 0},
                 "sell": {"checked": 0, "distance": 0, "adx": 0, "di": 0, "quality": 0, "ema": 0, "rsi": 0, "volume": 0, "rejection": 0, "pullback": 0, "fr_hard_block": 0, "fr_penalty": 0, "add": 0, "add_limit": 0, "add_quality": 0, "passed": 0},
             }
+
+        if len(klines) < 50:
+            return []
 
         params = self.params
 
@@ -682,6 +700,8 @@ class SupportResistanceStrategy(BaseStrategy):
         bias = trend_info["bias"]
         parent_trend = trend_info["parent_trend"]
         parent_aligned = trend_info["parent_aligned"]
+        parent_has_direction = trend_info.get("parent_has_direction")
+        is_counter_trend = trend_info.get("is_counter_trend", False)
 
         # 计算当前 ATR（退出管理与开仓过滤共用，提前计算以确保退出管理不受下方
         # ADX / 震荡过滤的提前返回影响 —— 已有仓位的止盈止损每根 bar 都必须能执行）
@@ -1191,7 +1211,7 @@ class SupportResistanceStrategy(BaseStrategy):
                     volume_ratio=round(vol_ratio, 2),
                     parent_trend=parent_trend,
                     direction_type="main" if buy_is_primary else "secondary",
-                    is_counter_trend=not parent_aligned,
+                    is_counter_trend=is_counter_trend,
                     atr=round(current_atr, 8) if current_atr else None,
                     entry_threshold_pct=round(threshold, 4),
                     distance_pct=round(distance_pct, 4),
@@ -1205,6 +1225,8 @@ class SupportResistanceStrategy(BaseStrategy):
                         "trend": trend,
                         "parent_trend": parent_trend,
                         "parent_aligned": parent_aligned,
+                        "parent_has_direction": parent_has_direction,
+                        "is_counter_trend": is_counter_trend,
                         "bias": bias,
                         "is_primary": buy_is_primary,
                         "adx": round(current_adx, 1),
@@ -1478,7 +1500,7 @@ class SupportResistanceStrategy(BaseStrategy):
                     volume_ratio=round(vol_ratio, 2),
                     parent_trend=parent_trend,
                     direction_type="main" if sell_is_primary else "secondary",
-                    is_counter_trend=not parent_aligned,
+                    is_counter_trend=is_counter_trend,
                     atr=round(current_atr, 8) if current_atr else None,
                     entry_threshold_pct=round(threshold, 4),
                     distance_pct=round(distance_pct, 4),
@@ -1493,6 +1515,8 @@ class SupportResistanceStrategy(BaseStrategy):
                         "trend": trend,
                         "parent_trend": parent_trend,
                         "parent_aligned": parent_aligned,
+                        "parent_has_direction": parent_has_direction,
+                        "is_counter_trend": is_counter_trend,
                         "bias": bias,
                         "is_primary": sell_is_primary,
                         "adx": round(current_adx, 1),
