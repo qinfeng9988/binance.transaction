@@ -37,8 +37,8 @@
 
 | 币种分类 | 包含币种 | 最大杠杆 | 超限处理 |
 |---------|---------|---------|---------|
-| 主流币 | BTC, ETH, SOL, BNB, PAXG | 5x | 自动下调至上限 |
-| 山寨币 | 其他 | 3x | 自动下调至上限 |
+| 主流币 | BTC, ETH, PAXG | 5x | 自动下调至上限 |
+| 山寨币 | 其他（SOL, BNB, UNI 等） | 3x | 自动下调至上限 |
 
 **配置参数：**
 ```yaml
@@ -49,8 +49,6 @@ leverage_limits:
 major_symbols:
   - "BTC"
   - "ETH"
-  - "SOL"
-  - "BNB"
   - "PAXG"
 ```
 
@@ -150,8 +148,6 @@ leverage_limits:
 major_symbols:
   - "BTC"
   - "ETH"
-  - "SOL"
-  - "BNB"
   - "PAXG"
 
 stop_loss:
@@ -200,7 +196,7 @@ max_total_risk_pct: 10.0
 
 | 变更项 | 旧值 | 新值 | 说明 |
 |--------|------|------|------|
-| major_symbols | BTC, ETH, SOL | + BNB, PAXG | v1.7.0 新增 BNB/PAXG 活跃策略，纳入主流币 5x 杠杆档 |
+| major_symbols | BTC, ETH, SOL | BTC, ETH, PAXG | v1.7.0 调整：仅实际使用 5x 杠杆的币种（SOL/BNB/UNI 均为 3x） |
 | max_concurrent_positions | 5 | 6 | 6 个活跃策略并发持仓需求 |
 | max_total_risk_pct | 8.0 | 10.0 | 6 策略全持仓潜在亏损约 7.72%，提至 10% 留缓冲 |
 | 日累计亏损/持仓数检查范围 | 所有新交易 | 仅新开仓 | v1.7.0：反向平仓与加仓不受限（代码行为对齐） |

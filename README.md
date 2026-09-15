@@ -151,7 +151,7 @@ database:
 
 ```yaml
 leverage_limits:
-  major_coins: 5      # 主流币(BTC/ETH/SOL/BNB/PAXG) 最大杠杆
+  major_coins: 5      # 主流币(BTC/ETH/PAXG) 最大杠杆
   alt_coins: 3        # 山寨币最大杠杆
 
 stop_loss:
@@ -613,7 +613,7 @@ binance:
 
 | 规则 | 默认值 | 说明 |
 |------|--------|------|
-| 主流币杠杆上限 | 5x | BTC/ETH/SOL/BNB/PAXG |
+| 主流币杠杆上限 | 5x | BTC/ETH/PAXG |
 | 山寨币杠杆上限 | 3x | 其他币种 |
 | 单笔止损距离 | 1.5% | 仓位价值的百分比 |
 | 单笔最大亏损 | 保证金的 15% | 防止单笔亏太多 |

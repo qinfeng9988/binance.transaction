@@ -860,7 +860,7 @@ python scripts/analyze_attribution.py --latest
 | 成交量爆发 | **是** | 否 | 策略前置过滤 |
 | ATR 动态止损 | **是** | 检查 | 策略设定，风控检查止损距离 |
 | 同向加仓限制 | **是** | 否 | BTC 震荡1次/趋势2次；ETH/SOL 关闭加仓 |
-| 杠杆设定 | 建议值 | **限制** | 策略请求，风控按币种上限调整（主流币 5x：BTC/ETH/SOL/BNB/PAXG） |
+| 杠杆设定 | 建议值 | **限制** | 策略请求，风控按币种上限调整（主流币 5x：BTC/ETH/PAXG；SOL/BNB/UNI 3x） |
 | 单笔亏损上限 | 否 | **是** | 风控检查 |
 | 日累计亏损 | 否 | **是** | 风控检查（v1.7.0：仅拦截新开仓，加仓/反向平仓不受限） |
 | 最大持仓数 | 否 | **是** | 风控检查（v1.7.0: 5→6，仅拦截新开仓） |
@@ -956,7 +956,7 @@ python scripts/analyze_attribution.py --latest
 
 | 版本 | 日期 | 变更内容 | 变更人 |
 |------|------|---------|--------|
-| v1.7.0 | 2026-09-15 | BTC 5m 参数优化(+12.28%) + PAXG S/R 策略替代 EMA(+9.99%) + UNI 5m 新增(+12.41%) + BNB 5m 启用 + 风控文档对齐（major_symbols +BNB/PAXG、max_concurrent 5→6、max_total_risk 8→10%）：BTC 参数 9 项调优; PAXG 3x→5x 杠杆风险平价; UNI 5m S/R 参数定型; BNB 5m 启用于回测 +4.61% | jiangfeng.qin |
+| v1.7.0 | 2026-09-15 | BTC 5m 参数优化(+12.28%) + PAXG S/R 策略替代 EMA(+9.99%) + UNI 5m 新增(+12.41%) + BNB 5m 启用 + 风控文档对齐（major_symbols -SOL +PAXG、max_concurrent 5→6、max_total_risk 8→10%）：BTC 参数 9 项调优; PAXG 3x→5x 杠杆风险平价; UNI 5m S/R 参数定型; BNB 5m 启用于回测 +4.61% | jiangfeng.qin |
 | v1.6.1 | 2026-08-24 | 退出机制回测评估：①修复信号调度bug（退出信号被 break/cooldown 跳过，改为退出信号优先执行无 cooldown）②BTC 1h/ETH 1h YTD 回测对比（baseline vs structured_stop+partial_tp）③回测结论：structured_stop 在 1h 周期将止损移至 S/R 位后频繁触发，收益大幅下降，MDD 改善有限；BTC 1h partial_tp 截断大赢单。④配置调整：BTC 1h 关闭 structured_stop+partial_tp，ETH 关闭 structured_stop | jiangfeng.qin |
 | v1.6.0 | 2026-08-24 | 退出管理与开仓过滤解耦：①提取 `_manage_position_exits()` 方法（结构化止损/跟踪止损/部分止盈）②ATR 与已有持仓查找提前到 ADX 过滤之前 ③ADX/自身震荡/上级震荡三处提前返回由 `return []` 改为返回退出信号，确保已有仓位止盈止损每根 bar 无条件执行 ④BTC 1h / ETH 启用 `structured_stop`+`partial_tp`（锁定已有浮盈，定位从"提升每笔表现"转为"防止盈利单回吐"） | jiangfeng.qin |
 | v1.4.2 | 2026-06-09 | 策略配置定型与文档更新：①ETH 关闭 5m 交易周期、关闭加仓与拒绝蜡烛 ②BTC 启用拒绝蜡烛（2.0x） ③SOL 关闭拒绝蜡烛 ④清理 ETH/SOL 无用配置参数 ⑤移除 `check_rejection_candle` 废弃的 `reference_size` 参数 ⑥优化 `identify_support_resistance` 拒绝蜡烛计算（require_rejection=false 时跳过） | jiangfeng.qin |

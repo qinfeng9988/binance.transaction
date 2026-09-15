@@ -3,16 +3,15 @@
 
 # Leverage limits by coin category
 leverage_limits:
-  major_coins: 5      # BTC, ETH, SOL
+  major_coins: 5      # BTC, ETH, PAXG
   alt_coins: 3        # Everything else
 
 # Major coin symbols (used for leverage limit classification)
+# v1.7.0: 仅实际使用 5x 杠杆的币种（SOL/BNB/UNI 均为 3x，属山寨币档）
 major_symbols:
   - "BTC"
   - "ETH"
-  - "SOL"
-  - "BNB"                            # v1.7.0: 新增 BNB 活跃策略
-  - "PAXG"                           # v1.7.0: 黄金锚定币，低波动适合 5x
+  - "PAXG"                          # v1.7.0: 黄金锚定币，低波动适合 5x
 
 # Stop loss settings (percentage of position value)
 stop_loss:
