@@ -20,7 +20,7 @@ PAXG（Paxos Gold）是锚定黄金的加密货币，波动极小（1h ATR $3-5�
 
 - **ADX < 20 是死亡区**：1h 回测中 ADX < 20 的 5 笔交易全部亏损（-458 USDT），胜率 0%。必须使用 `adx_min >= 20` 作为硬性入场门槛。
 - **Gold trends respect S/R levels strongly**：逆向信号（reverse_signal）作为退出原因的 19 笔交易中，胜率 68.4%，平均每笔 +989 USDT，说明 S/R 位附近的价格行为具有高度可预测性。
-- **低波动需高仓位**：`position_value_ratio` 从默认 0.15 提升至 0.32 才能有效放大收益。低波动品种的盈利空间有限，仓位是核心杠杆。
+- **低波动需高仓位**：`position_value_ratio` 从默认 0.15 提升至 0.20（配合 5x 杠杆实现风险平价）。低波动品种的盈利空间有限，5x 杠杆 + 0.20 仓位与之前 3x 杠杆 + 0.32 仓位风险等价。
 - **宽止损必要**：ATR 3.5 倍（对应 $12-18 距离）才能避免频繁扫出。PAXG 的 ATR 绝对值极小（$3-5），若止损过紧（如 1.5-2.0x ATR），正常波动即可触发止损。
 
 ### 与原有 EMA 策略对比
@@ -132,8 +132,8 @@ PAXG（Paxos Gold）是锚定黄金的加密货币，波动极小（1h ATR $3-5�
     lookback: 100
     min_touches: 4.5
     stop_loss_pct: 1.5
-    leverage: 3
-    position_value_ratio: 0.32       # 低波动需高仓位放大收益
+    leverage: 5                      # 3→5x：黄金低波动，等比降仓保持风险不变
+    position_value_ratio: 0.20       # 0.32→0.20：5x×0.20≈3x×0.32，风险平价
     entry_threshold_pct: 0.5
     secondary_min_touches: 4
     secondary_entry_threshold_pct: 0.3
@@ -214,7 +214,7 @@ PAXG（Paxos Gold）是锚定黄金的加密货币，波动极小（1h ATR $3-5�
 |------|---------|--------|---------|
 | `adx_min` | **20.0** | 18.0 | PAXG 波动小，ADX < 20 时趋势信号完全无效（0% 胜率） |
 | `atr_multiplier` | **3.5** | 5.0 | PAXG ATR 绝对值 $3-5，3.5x = $12-18；BTC ATR 大，5.0x 才够宽 |
-| `position_value_ratio` | **0.32** | 0.15（默认） | PAXG 低波动必须高仓位放大收益 |
+| `position_value_ratio` | **0.20** | 0.15（默认） | PAXG 低波动配合 5x 杠杆实现风险平价 |
 | `volume_burst_ratio` | **1.3** | 1.5 | PAXG 成交量小，1.5x 过于严格导致信号过少 |
 | `ema_gap_threshold_pct` | **0.3** | 0.5 | PAXG EMA 间距通常很小，0.5% 阈值会导致永远判定为 ranging |
 | `entry_threshold_pct` | **0.5** | 0.35（BTC） | PAXG 1h 波动小，0.35% 距离过近难以触发 |
@@ -231,7 +231,7 @@ PAXG（Paxos Gold）是锚定黄金的加密货币，波动极小（1h ATR $3-5�
 | 成交量爆发 | **是** | 否 | 量比 1.3×（比 BTC/ETH 更宽松） |
 | ATR 动态止损 | **是** | 检查 | 策略设定 3.5x ATR，风控检查止损距离 |
 | 同向加仓限制 | **是** | 否 | 震荡期 1 次 / 趋势期 2 次 |
-| 杠杆设定 | 建议值 (3x) | **限制** | 策略请求 3x，风控按币种上限调整 |
+| 杠杆设定 | 建议值 (5x) | **限制** | 策略请求 5x，风控按币种上限调整 |
 | 单笔亏损上限 | 否 | **是** | 风控检查 |
 | 日累计亏损 | 否 | **是** | 风控检查 |
 | 最大持仓数 | 否 | **是** | 风控检查 |
@@ -250,8 +250,8 @@ Signal(
     signal_type="buy|sell",
     price=current_price,
     stop_loss=entry_price ± atr(14) * 3.5,
-    leverage=3,
-    position_value_ratio=0.32,
+    leverage=5,
+    position_value_ratio=0.20,
     metadata={
         "sr_level": support_resistance_price,  # 最近的 S/R 位价格
         "sr_quality": quality_score,            # S/R 位质量分
@@ -323,6 +323,8 @@ Signal(
 | v3 | pos 0.25→0.30 | +9.45% | +1.38% |
 | **v4** | **pos 0.30→0.32** | **+9.99%** | +0.54% |
 
+> **注**：以上迭代均在 3x 杠杆下完成。v1.0.0 最终发布时杠杆调整为 5x，position_value_ratio 同步从 0.32 降至 0.20，实现风险平价（5×0.20 ≈ 3×0.32）。
+
 ### 7.2 踩过的坑
 
 #### 1. EMA 交叉策略不适合 PAXG
@@ -359,9 +361,9 @@ Bollinger EMA 交叉策略在 PAXG 三种周期（5m/1h/4h）均表现不佳：
 | 0.15（默认） | +2.70% | 初始值，仓位过轻 |
 | 0.25 | +8.07% | 提升至 25%，收益大幅改善 |
 | 0.30 | +9.45% | 进一步提升 |
-| **0.32** | **+9.99%** | 最终值，收益接近最大化 |
+| **0.32** | **+9.99%** | 3x 杠杆下最优；最终 5x 杠杆等比降仓至 0.20 |
 
-**注意**：position_value_ratio 提升会同步增加风险敞口和最大回撤（从 1.89% 升至 6.35%），需在收益与风险间权衡。
+> **注意**：以上回测基于 3x 杠杆。v1.0.0 最终发布时杠杆调整为 5x，position_value_ratio 相应从 0.32 降至 0.20，实现风险平价（5×0.20 ≈ 3×0.32 = 1.0 风险敞口）。position_value_ratio 提升会同步增加风险敞口和最大回撤（从 1.89% 升至 6.35%），需在收益与风险间权衡。
 
 #### 4. 宽止损是必要设计
 
@@ -377,7 +379,7 @@ PAXG ATR(14) 约 $3-5，若使用与 BTC 类似的 ATR 倍数（如 2.5x），�
 
 - [x] **从 Bollinger EMA 交叉迁移至 S/R 策略**：v1.0.0 已完成，YTD +9.99%
 - [x] **ADX 阈值优化**：adx_min 14→20，过滤 ADX < 20 的全部亏损交易
-- [x] **仓位参数调优**：position_value_ratio 0.15→0.32，低波动品种适配
+- [x] **仓位参数调优**：position_value_ratio 0.15→0.32→最终 0.20（5x 杠杆风险平价）
 - [x] **ATR 止损倍数调优**：2.5→3.5，宽止损适应低波动
 - [ ] **更长时间回测验证**：当前仅覆盖 YTD 8 个月，需至少一年数据验证稳定性
 - [ ] **4h 周期探索**：PAXG 在 4h 周期上 S/R 位质量可能更高、交易更少但单笔盈利更大

@@ -13,7 +13,7 @@
 
 | 版本 | 日期 | 变更内容 | 变更人 |
 |------|------|---------|--------|
-| v1.7.0 | 2026-09-13 | BTC 5m 参数优化+12.28% & PAXG S/R 策略替代 EMA：①BTC 5m 回测 2026/1-8 从 +9.75%→+12.28%（position_value_ratio 0.13→0.17, min_touches 4.8→5.0, adx_min 18→17, atr_multiplier 7.0→7.5 等 9 项改动）②PAXG Bollinger EMA 策略三种周期全负（5m -5.86%, 1h -0.19%），替换为 S/R 策略，1h 回测 +9.99%（position_value_ratio 0.32, adx_min 20, atr_multiplier 3.5）③Bollinger 策略启用 adx_min 20 过滤 ADX<20 全亏区间 ④修正：跟踪止损/部分止盈在 BTC 5m 验证中确认拖累收益（+9.75%→+0.69%） | jiangfeng.qin |
+| v1.7.0 | 2026-09-13 | BTC 5m 参数优化+12.28% & PAXG S/R 策略替代 EMA：①BTC 5m 回测 2026/1-8 从 +9.75%→+12.28%（position_value_ratio 0.13→0.17, min_touches 4.8→5.0, adx_min 18→17, atr_multiplier 7.0→7.5 等 9 项改动）②PAXG Bollinger EMA 策略三种周期全负（5m -5.86%, 1h -0.19%），替换为 S/R 策略，1h 回测 +9.99%（leverage 3→5x, position_value_ratio 0.32→0.20（风险平价）, adx_min 20, atr_multiplier 3.5）③Bollinger 策略启用 adx_min 20 过滤 ADX<20 全亏区间 ④修正：跟踪止损/部分止盈在 BTC 5m 验证中确认拖累收益（+9.75%→+0.69%） | jiangfeng.qin |
 | v1.6.1 | 2026-08-24 | 退出机制回测评估：①修复信号调度bug（退出信号被break/cooldown跳过，改为退出信号优先执行无cooldown）②BTC 1h/ETH 1h YTD回测对比（baseline vs structured_stop+partial_tp）③回测结论：structured_stop在1h周期止损移至S/R位后频繁触发，严重拖累收益，关闭；BTC 1h partial_tp截断大赢单，关闭 | jiangfeng.qin |
 | v1.6.0 | 2026-08-24 | 退出管理与开仓过滤解耦：①提取 `_manage_position_exits()` 方法 ②ATR/已有持仓查找提前到 ADX 过滤之前 ③ADX/自身震荡/上级震荡三处提前返回由 `return []` 改为返回退出信号，已有仓位止盈止损每根 bar 无条件执行 ④BTC 1h / ETH 启用 `structured_stop`+`partial_tp`，锁定已有浮盈、防止盈利单回吐 | jiangfeng.qin |
 | v1.5.2 | 2026-07-08 | 持仓监控模式改进：①修复结构化止损浮亏场景bug（止损被保本约束拉到当前价另一侧）②新增止盈建议（按S/R位质量分排序取TP1/TP2，ATR备选）③持仓输出格式重设计（趋势/止盈/S/R位详情/中文标签） | jiangfeng.qin |
@@ -70,7 +70,7 @@ Verified failures: trailing_stop (+9.75%→+0.69%), partial_tp, price_vs_ema_fil
 - Bollinger EMA crossover on PAXG all timeframes negative: 5m -5.86%, 1h -0.19%
 - Replaced with S/R strategy, 1h optimized to +9.99%
 - Key insight: ADX<20 is a death zone for PAXG (5 trades, all losing), must use adx_min >= 20
-- High position_value_ratio (0.32) needed due to low volatility
+- High leverage (5x) with moderate position (0.20) via risk parity
 
 ### C. UNI 5m S/R 策略新增
 
@@ -282,7 +282,7 @@ XAU 测试了 Bollinger EMA 和 S/R 两种策略。Bollinger 优化后 +3.81%，
 | YTD（1/1-8/20, Bollinger） | -0.19% | 1.89% | 76 | 21.1% | EMA 交叉 |
 | YTD（1/1-8/20, S/R v1.7.0） | **+9.99%** | 6.35% | 31 | 25.8% | S/R 1h |
 
-**策略特征（v1.7.0）**：Bollinger EMA 交叉策略在 PAXG 低波动品种上全周期亏损（5m -5.86%, 1h -0.19%），v1.7.0 替换为 S/R 策略，1h 周期回测 +9.99%。关键参数：position_value_ratio=0.32, adx_min=20, atr_multiplier=3.5。ADX<20 是 PAXG 的死区（5 笔全亏），必须 adx_min >= 20。
+**策略特征（v1.7.0）**：Bollinger EMA 交叉策略在 PAXG 低波动品种上全周期亏损，v1.7.0 替换为 S/R 策略，1h 周期回测 +9.99%。杠杆 5x + 仓位 0.20（风险平价：5x×0.20≈3x×0.32）。ADX<20 是 PAXG 的死区，必须 adx_min >= 20。
 
 ### UNI/USDT (5m)
 

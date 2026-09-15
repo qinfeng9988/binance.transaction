@@ -362,7 +362,7 @@ FR软阈值 SOL/USDT 5m 做空: funding=-0.0250% < -0.02%, quality 6.0 → 5.0
 | BTC | 5m | 5.0 | 5x | 0.7% - 1.2% |
 | ETH | 1h | 2.8 | 5x | 1.0% - 1.5% |
 | SOL | 5m | 4.0 | 3x | 1.5% - 2.5%（估计） |
-| PAXG | — | 3.5 | 3x | 0.3% - 0.6%（估计） |
+| PAXG | — | 3.5 | 5x | 0.3% - 0.6%（估计） |
 
 当 ATR 数据不足时，回退到固定百分比止损。
 
@@ -687,8 +687,8 @@ params:
   lookback: 100
   min_touches: 4.5
   stop_loss_pct: 1.5
-  leverage: 3
-  position_value_ratio: 0.32
+  leverage: 5                      # v1.7.0: 3→5x 风险平价
+  position_value_ratio: 0.20       # 0.32→0.20：5x×0.20≈3x×0.32
   entry_threshold_pct: 0.5
   secondary_min_touches: 4
   secondary_entry_threshold_pct: 0.3

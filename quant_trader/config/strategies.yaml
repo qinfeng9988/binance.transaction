@@ -466,8 +466,8 @@ strategies:
     lookback: 100
     min_touches: 4.5                 # 4.0→4.5 微提质量门槛
     stop_loss_pct: 1.5
-    leverage: 3
-    position_value_ratio: 0.32       # 0.30→0.32 最后一踩油门到 10%
+    leverage: 5                      # 3→5x：黄金低波动，等比降仓保持风险不变
+    position_value_ratio: 0.20       # 0.32→0.20：5x×0.20≈3x×0.32，风险平价
     entry_threshold_pct: 0.5
     secondary_min_touches: 4
     secondary_entry_threshold_pct: 0.3
