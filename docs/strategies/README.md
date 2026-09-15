@@ -64,14 +64,14 @@ docs/strategies/
 
 | 文档 | 说明 | 最后更新 |
 |------|------|---------|
-| [00_meta.md](current/00_meta.md) | 版本元信息 v1.7.0 | 2026-09-14 |
-| [01_risk_policy.md](current/01_risk_policy.md) | 全局风控策略 | — |
-| [02_support_resistance.md](current/02_support_resistance.md) | 支撑/阻力位策略（BTC/ETH/SOL/PAXG/UNI）v1.7.0 | 2026-09-14 |
+| [00_meta.md](current/00_meta.md) | 版本元信息 v1.7.0 | 2026-09-15 |
+| [01_risk_policy.md](current/01_risk_policy.md) | 全局风控策略 v1.1.0 | 2026-09-15 |
+| [02_support_resistance.md](current/02_support_resistance.md) | 支撑/阻力位策略（BTC/ETH/SOL/PAXG/BNB/UNI）v1.7.0 | 2026-09-15 |
 | [03_eth_5m.md](current/03_eth_5m.md) | ETH/USDT 1h 策略 | 2026-07-01 |
 | [04_paxg_ema.md](current/04_paxg_ema.md) | ⚠️ PAXG/USDT EMA 策略（已废弃） | 2026-09-13 |
 | [05_manual_query.md](current/05_manual_query.md) | 手动交易辅助 S/R 查询 | 2026-07-08 |
-| [06_paxg_sr.md](current/06_paxg_sr.md) | PAXG/USDT S/R 策略 +9.99% | 2026-09-13 |
-| 07_uni_sr.md | UNI/USDT 5m S/R 策略 +12.41% | 待创建 |
+| [06_paxg_sr.md](current/06_paxg_sr.md) | PAXG/USDT S/R 策略 +9.99%（5x 风险平价） | 2026-09-15 |
+| [07_uni_sr.md](current/07_uni_sr.md) | UNI/USDT 5m S/R 策略 +12.41% | 2026-09-15 |
 
 ## 快速参考
 

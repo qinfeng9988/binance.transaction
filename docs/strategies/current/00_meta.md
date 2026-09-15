@@ -37,13 +37,13 @@
 | 04 | PAXG/USDT 双均线趋势跟踪策略（已废弃） | [04_paxg_ema.md](04_paxg_ema.md) | 已废弃 |
 | 05 | 手动交易辅助 S/R 查询功能 | [05_manual_query.md](05_manual_query.md) | 已生效 |
 | 06 | PAXG/USDT S/R 策略 v1.0.0 | [06_paxg_sr.md](06_paxg_sr.md) | 生效中 |
-| 07 | UNI/USDT 5m S/R 策略 v1.0.0 | 待创建 | 生效中 |
+| 07 | UNI/USDT 5m S/R 策略 v1.0.0 | [07_uni_sr.md](07_uni_sr.md) | 生效中 |
 
 ## 风控版本
 
 | 文档 | 版本 | 状态 |
 |------|------|------|
-| [01_risk_policy.md](01_risk_policy.md) | v1.0.0 | 生效中（本迭代未变更） |
+| [01_risk_policy.md](01_risk_policy.md) | v1.1.0 | 生效中（2026-09-15 对齐 risk.yaml：major_symbols +BNB/PAXG、max_concurrent 6、max_total_risk 10%） |
 
 ## v1.7.0 变更摘要（当前）
 
@@ -331,6 +331,7 @@ XAU 测试了 Bollinger EMA 和 S/R 两种策略。Bollinger 优化后 +3.81%，
 | P1 | BTC 5m 参数优化（9 项改动，+9.75%→+12.28%） | v1.7.0 | 2026-09-13 | **已完成** |
 | P1 | UNI 策略新增（5m S/R，YTD +12.41%） | v1.7.0 | 2026-09-13 | **已完成** |
 | P1 | XAU 策略评估与禁用（Bollinger +3.81%, S/R +4.65%，均低于 PAXG） | v1.7.0 | 2026-09-13 | **已完成** |
+| P0 | 风控配置调整（major_symbols +BNB/PAXG、max_concurrent 5→6、max_total_risk 8→10%）+ 风控文档对齐 | v1.7.0 | 2026-09-15 | **已完成** |
 | P1 | SOL 5m 长周期回测验证（覆盖趋势期，验证第2次加仓效果） | v1.4.2 | 2026-06-15 | 已完成 |
 | P1 | Funding Rate 过滤回测验证（对比开启/关闭的关键指标） | v1.5.0 | 2026-06-12 | **已完成** |
 | P1 | PAXG 低波动品种适配 | v1.5.0 | 2026-06-30 | **已完成** |

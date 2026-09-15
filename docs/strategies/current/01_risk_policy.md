@@ -4,8 +4,8 @@
 
 | 属性 | 值 |
 |------|-----|
-| 文档版本 | v1.0.0 |
-| 生效日期 | 2025-05-21 |
+| 文档版本 | v1.1.0 |
+| 生效日期 | 2026-09-15 |
 | 适用策略 | 所有策略 |
 | 运行模式 | 信号级实时检查 |
 
@@ -37,7 +37,7 @@
 
 | 币种分类 | 包含币种 | 最大杠杆 | 超限处理 |
 |---------|---------|---------|---------|
-| 主流币 | BTC, ETH, SOL | 5x | 自动下调至上限 |
+| 主流币 | BTC, ETH, SOL, BNB, PAXG | 5x | 自动下调至上限 |
 | 山寨币 | 其他 | 3x | 自动下调至上限 |
 
 **配置参数：**
@@ -50,6 +50,8 @@ major_symbols:
   - "BTC"
   - "ETH"
   - "SOL"
+  - "BNB"
+  - "PAXG"
 ```
 
 **实现位置：** `quant_trader/risk/manager.py:48-54`
@@ -120,11 +122,11 @@ major_symbols:
 
 | 参数 | 值 | 说明 |
 |------|-----|------|
-| 最大同时持仓 | 5 | 达到后拒绝新开仓 |
+| 最大同时持仓 | 6 | 达到后拒绝新开仓（v1.7.0：6 个活跃策略） |
 
-**逻辑：** 统计数据库中状态为 `open` 的持仓数量，达到 5 个后拒绝。
+**逻辑：** 统计数据库中状态为 `open` 的持仓数量，达到 6 个后拒绝。仅对新开仓检查；反向平仓减少持仓、加仓不增持仓数（v1.7.0 行为）。
 
-**实现位置：** `quant_trader/risk/manager.py:88-92`
+**实现位置：** `quant_trader/risk/manager.py:138-144`
 
 ### 3.7 单币种仓位占比限制（TODO）
 
@@ -149,6 +151,8 @@ major_symbols:
   - "BTC"
   - "ETH"
   - "SOL"
+  - "BNB"
+  - "PAXG"
 
 stop_loss:
   default_pct: 1.5
@@ -159,9 +163,16 @@ position_limits:
   max_loss_per_trade_pct: 15
   max_daily_loss_pct: 30
   max_position_size_pct: 40
-  max_concurrent_positions: 5
+  max_concurrent_positions: 6
 
 max_leveraged_loss_pct: 15
+
+# 连续亏损风控（实盘与回测共享）
+max_consecutive_losses: 3              # 触发阈值
+cooldown_duration_seconds: 3600        # 冷静期时长（秒），期间拒绝新开仓
+
+# 总风险上限
+max_total_risk_pct: 10.0
 ```
 
 ## 5. 风控响应矩阵
@@ -172,8 +183,8 @@ max_leveraged_loss_pct: 15
 | 止损距离 > 2.5% | L2 | 拒绝交易 | 是（WARNING） |
 | 杠杆亏损 > 15% | L3 | 自动降杠杆 | 是（WARNING） |
 | 降杠杆后仍超限 | L4 | 拒绝交易 | 是（WARNING） |
-| 日亏损 >= 30% | L5 | 拒绝所有新交易 | 是（WARNING） |
-| 持仓数 >= 5 | L6 | 拒绝新开仓 | 是（WARNING） |
+| 日亏损 >= 30% | L5 | 拒绝所有新开仓 | 是（WARNING） |
+| 持仓数 >= 6 | L6 | 拒绝新开仓 | 是（WARNING） |
 | 单币种占比 > 40% | L7 | 拒绝/减仓（待实现） | — |
 
 ## 6. 与其他模块的交互
@@ -185,7 +196,16 @@ max_leveraged_loss_pct: 15
 | `data_store.py` | 查询持仓数量、记录订单 | 风控检查的数据源 |
 | `config_loader.py` | 热重载 `risk.yaml` | 配置变更无需重启 |
 
-## 7. 待优化项
+## 7. v1.1.0 变更记录（2026-09-15，对齐 risk.yaml v1.7.0 调整）
+
+| 变更项 | 旧值 | 新值 | 说明 |
+|--------|------|------|------|
+| major_symbols | BTC, ETH, SOL | + BNB, PAXG | v1.7.0 新增 BNB/PAXG 活跃策略，纳入主流币 5x 杠杆档 |
+| max_concurrent_positions | 5 | 6 | 6 个活跃策略并发持仓需求 |
+| max_total_risk_pct | 8.0 | 10.0 | 6 策略全持仓潜在亏损约 7.72%，提至 10% 留缓冲 |
+| 日累计亏损/持仓数检查范围 | 所有新交易 | 仅新开仓 | v1.7.0：反向平仓与加仓不受限（代码行为对齐） |
+
+## 8. 待优化项
 
 - [ ] **L7 单币种仓位占比**：当前为 TODO，需要引擎传入总余额后完成计算逻辑
 - [ ] **动态杠杆**：根据市场波动率自动调整杠杆上限（如 ATR 指标）

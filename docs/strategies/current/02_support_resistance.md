@@ -6,7 +6,7 @@
 | 策略类型 | 趋势跟踪 + 技术分析 |
 | 核心思想 | 在高质量支撑/阻力位附近，经多维度过滤（ADX/RSI/成交量）确认后，顺势交易为主、逆势交易为辅 |
 | 适用市场 | 高流动性、有明确趋势的加密货币市场 |
-| 交易标的 | BTC/USDT (5m), ETH/USDT (1h), SOL/USDT (5m), PAXG/USDT (1h) |
+| 交易标的 | BTC/USDT (5m), ETH/USDT (1h), SOL/USDT (5m), PAXG/USDT (1h), BNB/USDT (5m), UNI/USDT (5m) |
 | 当前版本 | v1.7.0 |
 
 ## 1. 核心算法
@@ -786,10 +786,22 @@ strategies:
     timeframes: ["5m", "1h", "4h"]
     params: { ... }
 
+  - name: "support_resistance_bnb"
+    enabled: true
+    symbols: ["BNB/USDT"]
+    timeframes: ["5m"]
+    params: { ... }
+
   - name: "support_resistance_paxg"
-    enabled: false
+    enabled: true
     symbols: ["PAXG/USDT"]
-    timeframes: ["5m", "1h", "4h"]
+    timeframes: ["1h"]
+    params: { ... }
+
+  - name: "support_resistance_uni"
+    enabled: true
+    symbols: ["UNI/USDT"]
+    timeframes: ["5m"]
     params: { ... }
 ```
 
@@ -803,7 +815,10 @@ strategy_registry = {
     "support_resistance_btc": SupportResistanceStrategy,
     "support_resistance_eth": SupportResistanceStrategy,
     "support_resistance_sol": SupportResistanceStrategy,
+    "support_resistance_bnb": SupportResistanceStrategy,
     "support_resistance_paxg": SupportResistanceStrategy,
+    "support_resistance_uni": SupportResistanceStrategy,
+    "support_resistance_xau": SupportResistanceStrategy,    # XAU (已禁用)
 }
 ```
 
@@ -845,10 +860,11 @@ python scripts/analyze_attribution.py --latest
 | 成交量爆发 | **是** | 否 | 策略前置过滤 |
 | ATR 动态止损 | **是** | 检查 | 策略设定，风控检查止损距离 |
 | 同向加仓限制 | **是** | 否 | BTC 震荡1次/趋势2次；ETH/SOL 关闭加仓 |
-| 杠杆设定 | 建议值 | **限制** | 策略请求，风控按币种上限调整 |
+| 杠杆设定 | 建议值 | **限制** | 策略请求，风控按币种上限调整（主流币 5x：BTC/ETH/SOL/BNB/PAXG） |
 | 单笔亏损上限 | 否 | **是** | 风控检查 |
-| 日累计亏损 | 否 | **是** | 风控检查 |
-| 最大持仓数 | 否 | **是** | 风控检查 |
+| 日累计亏损 | 否 | **是** | 风控检查（v1.7.0：仅拦截新开仓，加仓/反向平仓不受限） |
+| 最大持仓数 | 否 | **是** | 风控检查（v1.7.0: 5→6，仅拦截新开仓） |
+| 总风险上限 | 否 | **是** | 所有持仓潜在最大亏损占余额上限（v1.7.0: 8→10%） |
 | 信号冷却期 | **是** | 否 | 引擎层 220 秒同币种冷却 |
 | Funding Rate 过滤 | **是** | 否 | v1.5.0：硬阈值阻断 + 软阈值扣分/降杠杆 |
 | 移动止损 | 策略内（已禁用） | 否 | v1.4.0 测试后关闭 |
@@ -907,6 +923,16 @@ python scripts/analyze_attribution.py --latest
 
 **策略特征（v1.7.0）**：从 Bollinger EMA 交叉策略迁移至 S/R 策略。YTD 收益率 +9.99%，交易 31 笔，胜率 25.8%，最大回撤 6.35%。相比旧 EMA 交叉策略（-0.19%, 76 笔），S/R 策略大幅减少交易频率并显著提升收益。ADX 20 有效过滤此前 ADX<20 的全亏区间。
 
+> **注**：上表 +9.99% 基于回测时的 3x 杠杆 + position_value_ratio 0.32。v1.0.0 最终发布（2026-09-15）调整为 5x 杠杆 + 0.20 仓位，风险平价（5×0.20 ≈ 3×0.32），预期收益/回撤特征等比不变。
+
+### 6.6 UNI/USDT (5m)
+
+| 回测区间 | 收益率 | 最大回撤 | 交易次数 | 胜率 | 策略 |
+|---------|--------|---------|---------|------|------|
+| YTD（1/1-8/20, v1.7.0） | **+12.41%** | 9.89% | 272 | 46.0% | S/R 5m |
+
+**策略特征（v1.7.0）**：基于 PAXG 经验，UNI 直接从 5m S/R 起步。关键参数：min_touches 5.0, adx_min 22, atr_multiplier 5.5, position_value_ratio 0.20。交易频率高（272 笔/YTD），胜率中等（46.0%），MDD 偏高（9.89%）需持续监控。详见 [07_uni_sr.md](07_uni_sr.md)。
+
 ## 7. 已知问题与 TODO
 
 - [x] **Volume Profile POC/HVN**：v1.4.0 已实现分层评分
@@ -930,7 +956,7 @@ python scripts/analyze_attribution.py --latest
 
 | 版本 | 日期 | 变更内容 | 变更人 |
 |------|------|---------|--------|
-| v1.7.0 | 2026-09-13 | BTC 5m 参数优化(+12.28%) + PAXG S/R 策略替代 EMA(+9.99%)：position_value_ratio 0.13→0.17, min_touches 4.8→5.0, adx_min 18→17, atr_multiplier 7.0→7.5, rsi 区间微调; PAXG 从 Bollinger EMA→S/R, adx_min 20 过滤全亏区间 | jiangfeng.qin |
+| v1.7.0 | 2026-09-15 | BTC 5m 参数优化(+12.28%) + PAXG S/R 策略替代 EMA(+9.99%) + UNI 5m 新增(+12.41%) + BNB 5m 启用 + 风控文档对齐（major_symbols +BNB/PAXG、max_concurrent 5→6、max_total_risk 8→10%）：BTC 参数 9 项调优; PAXG 3x→5x 杠杆风险平价; UNI 5m S/R 参数定型; BNB 5m 启用于回测 +4.61% | jiangfeng.qin |
 | v1.6.1 | 2026-08-24 | 退出机制回测评估：①修复信号调度bug（退出信号被 break/cooldown 跳过，改为退出信号优先执行无 cooldown）②BTC 1h/ETH 1h YTD 回测对比（baseline vs structured_stop+partial_tp）③回测结论：structured_stop 在 1h 周期将止损移至 S/R 位后频繁触发，收益大幅下降，MDD 改善有限；BTC 1h partial_tp 截断大赢单。④配置调整：BTC 1h 关闭 structured_stop+partial_tp，ETH 关闭 structured_stop | jiangfeng.qin |
 | v1.6.0 | 2026-08-24 | 退出管理与开仓过滤解耦：①提取 `_manage_position_exits()` 方法（结构化止损/跟踪止损/部分止盈）②ATR 与已有持仓查找提前到 ADX 过滤之前 ③ADX/自身震荡/上级震荡三处提前返回由 `return []` 改为返回退出信号，确保已有仓位止盈止损每根 bar 无条件执行 ④BTC 1h / ETH 启用 `structured_stop`+`partial_tp`（锁定已有浮盈，定位从"提升每笔表现"转为"防止盈利单回吐"） | jiangfeng.qin |
 | v1.4.2 | 2026-06-09 | 策略配置定型与文档更新：①ETH 关闭 5m 交易周期、关闭加仓与拒绝蜡烛 ②BTC 启用拒绝蜡烛（2.0x） ③SOL 关闭拒绝蜡烛 ④清理 ETH/SOL 无用配置参数 ⑤移除 `check_rejection_candle` 废弃的 `reference_size` 参数 ⑥优化 `identify_support_resistance` 拒绝蜡烛计算（require_rejection=false 时跳过） | jiangfeng.qin |
